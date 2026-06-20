@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENWEATHER_API_KEY   = os.getenv("OPENWEATHER_API_KEY")
-AMADEUS_API_KEY       = os.getenv("AMADEUS_API_KEY")
-AMADEUS_API_SECRET    = os.getenv("AMADEUS_API_SECRET")
+# Amadeus self-service portal is decommissioned — replaced with FlightAPI.io
+FLIGHTAPI_KEY         = os.getenv("FLIGHTAPI_KEY")
 OPENTRIPMAP_API_KEY   = os.getenv("OPENTRIPMAP_API_KEY")
 EXCHANGERATE_API_KEY  = os.getenv("EXCHANGERATE_API_KEY")
 SARVAM_API_KEY        = os.getenv("SARVAM_API_KEY")
