@@ -29,3 +29,7 @@ POST_MODEL_MAX_CHARS      = int(os.getenv("POST_MODEL_MAX_CHARS", "400"))
 POST_MODEL_OVERFLOW_SUFFIX = os.getenv(
     "POST_MODEL_OVERFLOW_SUFFIX", "...for more details, just ask"
 )
+
+# Voice layer retry — how many times to retry Sarvam before falling back to Deepgram.
+# 0 = try once immediately then fall back; 2 = three total attempts with backoff.
+VOICE_MAX_RETRIES = int(os.getenv("VOICE_MAX_RETRIES", "2"))
