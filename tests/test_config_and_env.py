@@ -11,8 +11,7 @@ def test_config_keys_present():
 
     expected_keys = [
         "OPENWEATHER_API_KEY",
-        "AMADEUS_API_KEY",
-        "AMADEUS_API_SECRET",
+        "FLIGHTAPI_KEY",          # replaced Amadeus after self-service portal shutdown
         "OPENTRIPMAP_API_KEY",
         "EXCHANGERATE_API_KEY",
         "SARVAM_API_KEY",
