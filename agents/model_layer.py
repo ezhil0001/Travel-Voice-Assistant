@@ -5,8 +5,8 @@ from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from config import settings
 
-# All model routing events are written here so failures are easy to trace
-# without attaching a debugger.
+# Routing decisions and provider failures are logged here so on-call engineers
+# can distinguish "Ollama was down" from "Groq rate-limited" without reading code.
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     filename=os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "test_results.log"),
@@ -16,33 +16,25 @@ logging.basicConfig(
 
 
 class ModelLayer:
-    """LLM invocation layer using the official LangChain Runnable resilience pattern.
+    """Resilient LLM invocation with automatic retry and cloud fallback.
 
-    Resilience is built from two composable Runnable wrappers:
+    The assistant runs Ollama locally to avoid per-token costs during normal
+    operation. Ollama can be temporarily unreachable when the host machine is
+    under load or the model is still loading — transient failures like these
+    should never surface to the user. .with_retry() absorbs them silently.
 
-        .with_retry()      — mirrors ModelRetryMiddleware from the blueprint.
-                             Retries transient failures (timeouts, 500s, rate limits)
-                             up to 3 times with exponential backoff before giving up.
+    When Ollama is genuinely unavailable (host down, out of VRAM), Groq provides
+    fast cloud inference as a last resort. .with_fallbacks() handles the switch
+    automatically — the caller always gets a response or a clean error string.
 
-        .with_fallbacks()  — mirrors ModelFallbackMiddleware from the blueprint.
-                             If all retries on the primary model are exhausted,
-                             the chain automatically tries the next model in the list.
-
-    Primary  : Ollama / qwen3.5:122b — accessed via its OpenAI-compatible REST API.
-               The endpoint and API key are read from OPENAI_BASE_URL / OPENAI_API_KEY
-               environment variables (set by config/settings.py), so model_layer.py
-               contains zero hardcoded URLs.
-
-    Fallback : Groq / openai/gpt-oss-120b — fast cloud inference when Ollama is
-               unreachable, overloaded, or the local GPU is busy.
-
-    The composed chain is built once in __init__ and reused on every invoke() call.
+    Both the primary model name and the Groq model are read from environment
+    variables so the production instance can be reconfigured without a redeploy.
     """
 
     def __init__(self) -> None:
-        # ChatOpenAI reads OPENAI_BASE_URL and OPENAI_API_KEY automatically from
-        # the environment — settings.py sets those to the Ollama endpoint so no
-        # URL string needs to appear anywhere in this file.
+        # ChatOpenAI picks up OPENAI_BASE_URL and OPENAI_API_KEY from the environment.
+        # settings.py points those at the local Ollama endpoint, so this file
+        # has no knowledge of where Ollama is running.
         primary = ChatOpenAI(
             model=settings.OLLAMA_MODEL,
             temperature=0,
@@ -53,33 +45,31 @@ class ModelLayer:
             api_key=settings.GROQ_API_KEY,
         )
 
-        # .with_retry() wraps the primary with exponential backoff retry logic.
-        # stop_after_attempt=3 means: attempt 1 immediately, attempt 2 after 2 s,
-        # attempt 3 after 4 s — matching the blueprint's documented behaviour.
+        # Three attempts covers the typical Ollama cold-start window (~8 seconds)
+        # without keeping the user waiting too long on a genuinely dead instance.
         primary_with_retry = primary.with_retry(
             stop_after_attempt=3,
         )
 
-        # .with_fallbacks() chains the retry-wrapped primary with the fallback model.
-        # If primary_with_retry raises after exhausting all attempts, LangChain
-        # automatically invokes `fallback` — the agent never sees a provider error.
+        # If all three Ollama attempts raise, LangChain passes the same request
+        # to Groq. The caller sees a successful response — not a provider error.
         self._chain = primary_with_retry.with_fallbacks(
             fallbacks=[fallback],
             exceptions_to_handle=(Exception,),
         )
 
     def invoke(self, prompt: str) -> str:
-        """Send a prompt through the resilient model chain and return plain text.
+        """Send a prompt and return the model's plain-text response.
 
-        The chain handles retries and failover internally. This method only needs
-        to call the chain and extract the response content.
+        Retries and provider switching happen inside the chain — this method
+        only needs to handle the case where everything fails simultaneously,
+        which returns a safe error string rather than raising.
 
         Args:
-            prompt: The fully assembled prompt string to send to the LLM.
+            prompt: Fully assembled prompt string including system and user parts.
 
         Returns:
-            The model's response as a plain string, or an error message if
-            both primary and fallback providers fail.
+            Response text, or an error string if both providers are unavailable.
         """
         try:
             logger.info("ModelLayer.invoke | primary=%s | fallback=%s",

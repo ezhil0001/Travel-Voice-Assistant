@@ -11,13 +11,16 @@ from datetime import datetime
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "test_results.log")
 
-# Keep this list ordered by dependency depth — config first, voice last.
+# Keep this list ordered by dependency depth — config first, server last.
 TEST_MODULES = [
     "tests/test_config_and_env.py",
     "tests/test_api_tools.py",
     "tests/test_middleware_pipeline.py",
     "tests/test_model_routing.py",
     "tests/test_voice_pipeline.py",
+    "tests/test_agent_routing.py",
+    "tests/test_graph_routing.py",
+    "tests/test_server_endpoints.py",
 ]
 
 

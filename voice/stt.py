@@ -1,14 +1,14 @@
 # Speech-to-text orchestrator.
 #
-# Architecture adapted from the TypeScript reference:
-#   - Each provider (Sarvam, Deepgram) is an independent class implementing
-#     BaseSTTProvider — same pattern as Sarvam/DeepgramStreamSTTService each
-#     implementing LLMServiceIntf in the TS codebase.
-#   - STTProvider is the orchestrator: it knows the priority order and wires
-#     retry_call() around the primary, then falls through to the fallback.
-#     It does NOT know about HTTP — that's each provider's responsibility.
-#   - Adding a third provider (e.g. AssemblyAI) is a new class only —
-#     STTProvider just adds it to the chain. Nothing else changes.
+# Two providers are registered: Sarvam (primary) and Deepgram (fallback).
+# STTProvider applies retry_call() around the primary first — Sarvam can be
+# slow to respond after a period of inactivity, and most failures resolve
+# within the retry window without needing to switch providers.
+# Deepgram is only called after all primary retries are exhausted.
+#
+# Each provider class owns its own HTTP logic. STTProvider owns the
+# priority order and resilience wiring. Adding a third provider means
+# adding a new class and updating the constructor — nothing else changes.
 
 import io
 import logging
@@ -82,15 +82,11 @@ class DeepgramSTT(BaseSTTProvider):
 class STTProvider:
     """STT orchestrator that applies retry + fallback across registered providers.
 
-    Resilience design (adapted from TS reference):
-        1. retry_call() wraps the primary provider in an exponential-backoff loop
-           (VOICE_MAX_RETRIES attempts). Transient failures resolve here silently.
-        2. If all primary retries fail, falls through to the fallback provider
-           (tried once — it's the last resort).
-        3. If the fallback also fails, returns "" so the caller always gets a string.
+    Sarvam is tried first with exponential backoff (VOICE_MAX_RETRIES attempts).
+    If all retries fail, Deepgram is tried once as a last resort. If Deepgram
+    also fails, an empty string is returned so the caller always gets a string.
 
     The orchestrator owns the priority order. Providers own their HTTP logic.
-    This separation means swapping or adding providers requires zero changes here.
     """
 
     def __init__(

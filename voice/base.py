@@ -5,19 +5,13 @@ from typing import Callable, TypeVar
 
 from config import settings
 
-# Two things live here:
+# Sarvam is the primary provider for both STT and TTS. It can return 5xx errors
+# during cold-start or peak load — these failures are transient and resolve within
+# a few seconds. Retrying with backoff avoids unnecessary provider switches
+# and keeps Deepgram usage reserved for genuine outages rather than blips.
 #
-#   1. BaseSTTProvider / BaseTTSProvider — abstract interfaces that every
-#      provider class must implement. This mirrors the TypeScript reference
-#      architecture where each provider (Sarvam, Deepgram) was a separate
-#      class behind a shared `LLMServiceIntf`. Defining the interface here
-#      means adding a third provider later only requires a new class — the
-#      orchestrators (STTProvider / TTSProvider) never need to change.
-#
-#   2. retry_call() — shared exponential-backoff utility used by both STT
-#      and TTS orchestrators. Centralising it here (rather than duplicating
-#      inside each provider, as the TS reference did) keeps provider classes
-#      focused solely on their HTTP contract.
+# retry_call() is centralised here rather than duplicated inside each provider
+# so the retry behaviour is consistent and only needs to change in one place.
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +22,16 @@ _BACKOFF_FACTOR = 2.0
 
 
 class BaseSTTProvider(ABC):
-    """Common interface for all Speech-to-Text providers.
+    """Interface every speech-to-text provider must implement.
 
-    Each concrete provider (Sarvam, Deepgram, …) implements only `request()` —
-    the single raw HTTP call for that provider. Retry logic and fallback
-    orchestration live in the STTProvider orchestrator, not here.
-
-    This mirrors the TypeScript pattern:
-        DeepgramStreamSTTService implements LLMServiceIntf
-        SarvamBatchService      implements LLMServiceIntf
+    Keeping implementations behind a shared interface means the STTProvider
+    orchestrator can switch between Sarvam and Deepgram without changing its
+    own logic — it just holds a reference to whichever provider it is trying.
     """
 
     @abstractmethod
     def request(self, audio_bytes: bytes) -> str:
-        """Make one transcription attempt. Must raise on any failure.
+        """Attempt a single transcription call. Must raise on any failure.
 
         Args:
             audio_bytes: Raw audio data (WAV or MP3).
@@ -56,18 +46,18 @@ class BaseSTTProvider(ABC):
 
 
 class BaseTTSProvider(ABC):
-    """Common interface for all Text-to-Speech providers.
+    """Interface every text-to-speech provider must implement.
 
-    Each concrete provider (Sarvam, Deepgram, …) implements only `request()`.
-    Retry and fallback orchestration live in the TTSProvider orchestrator.
+    The TTSProvider orchestrator calls request() through retry_call() and
+    switches to Deepgram only after all Sarvam retries are exhausted.
     """
 
     @abstractmethod
     def request(self, text: str) -> bytes:
-        """Make one synthesis attempt. Must raise on any failure.
+        """Attempt a single synthesis call. Must raise on any failure.
 
         Args:
-            text: Clean, markdown-free text ready for speech synthesis.
+            text: Clean, markdown-free text ready for synthesis.
 
         Returns:
             Raw audio bytes (WAV or MP3).
@@ -83,18 +73,22 @@ def retry_call(
     label: str,
     max_attempts: int | None = None,
 ) -> T:
-    """Call fn() up to max_attempts times with exponential backoff.
+    """Call fn() up to max_attempts times, backing off between failures.
+
+    The backoff window gives Sarvam time to recover from a momentary spike
+    before the caller decides it is genuinely down and switches to Deepgram.
 
     Args:
-        fn:           Zero-argument callable wrapping a single provider request.
+        fn:           Zero-argument callable wrapping one provider call.
         label:        Short identifier for log messages (e.g. "STT/Sarvam").
-        max_attempts: Total attempts allowed. Defaults to VOICE_MAX_RETRIES + 1.
+        max_attempts: Total attempts including the first.
+                      Defaults to VOICE_MAX_RETRIES + 1 from .env.
 
     Returns:
-        The return value of fn() on the first successful call.
+        The return value of fn() on a successful call.
 
     Raises:
-        The last exception raised by fn() after all attempts are exhausted.
+        The last exception raised after all attempts fail.
     """
     if max_attempts is None:
         max_attempts = int(settings.VOICE_MAX_RETRIES) + 1

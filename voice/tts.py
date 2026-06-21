@@ -1,14 +1,14 @@
 # Text-to-speech orchestrator.
 #
-# Architecture adapted from the TypeScript reference:
-#   - Each provider (Sarvam, Deepgram) is an independent class implementing
-#     BaseTTSProvider — mirrors the TS pattern where each service was a
-#     separate class behind a shared interface.
-#   - TTSProvider is the orchestrator: it owns priority order and wires
-#     retry_call() around the primary, then falls through to the fallback.
-#     It does NOT contain any HTTP logic — that belongs to each provider class.
-#   - Adding a third TTS provider requires only a new class. TTSProvider
-#     receives it via the constructor and needs no internal changes.
+# Two providers are registered: Sarvam (primary) and Deepgram (fallback).
+# TTSProvider applies retry_call() around the primary first — Sarvam cold-start
+# latency can cause the first request in a quiet period to time out, and
+# retries with backoff resolve the majority of those cases before falling over
+# to Deepgram.
+#
+# Each provider class owns its own HTTP logic. TTSProvider owns the
+# priority order and resilience wiring. Adding a third provider means
+# adding a new class and updating the constructor — nothing else changes.
 
 import base64
 import logging
@@ -89,12 +89,9 @@ class DeepgramTTS(BaseTTSProvider):
 class TTSProvider:
     """TTS orchestrator that applies retry + fallback across registered providers.
 
-    Resilience design (adapted from TS reference):
-        1. retry_call() wraps the primary provider in an exponential-backoff loop
-           (VOICE_MAX_RETRIES attempts). Transient failures resolve here silently.
-        2. If all primary retries fail, falls through to the fallback provider
-           (tried once — it's the last resort).
-        3. If the fallback also fails, returns b"" so the caller always gets bytes.
+    Sarvam is tried first with exponential backoff (VOICE_MAX_RETRIES attempts).
+    If all retries fail, Deepgram is tried once as a last resort. If Deepgram
+    also fails, empty bytes are returned so the caller always gets bytes.
 
     The orchestrator owns the priority order. Providers own their HTTP logic.
     """

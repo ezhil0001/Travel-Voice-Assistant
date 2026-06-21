@@ -6,7 +6,7 @@ from middleware.base import AgentMiddleware
 # The graph only needs to know about this one object — it doesn't have to
 # wire each middleware hook individually.
 #
-# Execution order mirrors the LangChain hook pattern:
+# Execution order:
 #   before_model    → runs in registration order (first-to-last)
 #   wrap_model_call → nested, outermost middleware wraps all inner ones
 #   after_model     → runs in reverse order (last-to-first)
