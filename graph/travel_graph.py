@@ -246,3 +246,48 @@ def run_graph(user_input: str, history: list | None = None) -> str:
         intent, response_len, elapsed,
     )
     return result.get("final_response", "Sorry, I couldn't process your request right now.")
+
+
+def run_graph_full(user_input: str, history: list | None = None) -> dict:
+    """Same pipeline as run_graph(), but returns a dict instead of just the text.
+
+    The Angular frontend needs both the response text and the detected intent so
+    it can render the correct intent badge on the message bubble. This function
+    avoids duplicating the initial-state setup between server.py and run_graph().
+
+    Args:
+        user_input: Raw transcribed or typed text.
+        history:    Conversation history [{role, content}, ...].
+
+    Returns:
+        {
+            "response": str  — TTS-ready response text,
+            "intent":   str  — one of weather/flight/attractions/currency/timezone/general,
+        }
+    """
+    if history is None:
+        history = []
+
+    initial_state: TravelState = {
+        "user_input":           user_input,
+        "conversation_history": history,
+        "cleaned_input":        "",
+        "detected_intent":      "",
+        "sub_agent_response":   "",
+        "final_response":       "",
+        "error":                "",
+    }
+
+    logger.info("run_graph_full | input=%s", user_input)
+    t0 = time.monotonic()
+    result = travel_graph.invoke(initial_state)
+    elapsed = time.monotonic() - t0
+
+    response = result.get("final_response", "Sorry, I couldn't process your request right now.")
+    intent   = result.get("detected_intent", "general")
+
+    logger.info(
+        "run_graph_full | intent=%s | response_len=%d | elapsed=%.2fs",
+        intent, len(response), elapsed,
+    )
+    return {"response": response, "intent": intent}

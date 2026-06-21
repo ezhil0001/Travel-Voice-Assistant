@@ -1,26 +1,29 @@
 # FastAPI entry point — exposes the travel assistant over HTTP.
 #
 # Three endpoints:
-#   POST /voice/query  — full voice pipeline: STT → graph → TTS → audio bytes
+#   POST /voice/query  — full voice pipeline: STT → graph → TTS → base64 JSON
+#                        (changed from raw StreamingResponse so the Angular client
+#                         can receive transcript, intent, and audio in one response)
 #   POST /text/query   — text-only: skips STT/TTS, useful for testing and Retell webhooks
 #   GET  /health       — liveness check for Ollama and Sarvam connectivity
 #
 # Session state is kept in a process-local dict keyed by session_id.
 # History is capped at 10 turns so prompts never exceed the model's context window.
 
+import base64
 import logging
 import os
 import time
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 import requests as http_requests
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from config import settings
-from graph.travel_graph import run_graph
+from graph.travel_graph import run_graph, run_graph_full
 from voice.stt import STTProvider
 from voice.tts import TTSProvider
 
@@ -42,6 +45,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Allow the Angular dev server (port 4200) and any production origin to call
+# the API from the browser. Without this every fetch/XHR from the frontend is
+# blocked before it even reaches the endpoint handlers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200", "http://127.0.0.1:4200"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # In-memory session store — maps session_id → conversation history list.
 # Each entry is {role: "user"|"assistant", content: str}.
 # Capped at MAX_HISTORY_TURNS to prevent unbounded prompt growth.
@@ -59,10 +73,14 @@ class TextQueryRequest(BaseModel):
     session_id: str = "default"
 
 
+# tool_events is an empty list for now — the graph doesn't yet surface per-tool
+# call metadata to the HTTP layer. The field is included so the Angular service
+# contract is satisfied without any client-side workarounds.
 class TextQueryResponse(BaseModel):
     response: str
     session_id: str
-    detected_intent: Optional[str] = None
+    intent: str = "general"          # renamed from detected_intent to match Angular contract
+    tool_events: List[dict] = []     # reserved for future tool-call telemetry
 
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
@@ -87,10 +105,25 @@ async def voice_query(
     audio_file: UploadFile = File(...),
     session_id: str = Header(default="default"),
 ):
-    """Full voice pipeline: audio → STT → graph → TTS → audio bytes.
+    """Full voice pipeline: audio → STT → graph → TTS → JSON.
 
     Accepts a multipart form upload containing raw audio (WAV/MP3).
-    Returns an audio/wav StreamingResponse the client can play directly.
+
+    Previously this returned a raw audio/wav StreamingResponse, which meant
+    the client had no way to access the transcript, response text, or intent
+    alongside the audio. Changed to return a JSON body so the Angular client
+    can populate message bubbles, intent badges, and tool activity panels
+    without a separate text/query call.
+
+    Response shape:
+        {
+            "transcript":   str   — what the STT heard,
+            "response":     str   — the assistant's text reply,
+            "intent":       str   — weather/flight/attractions/currency/timezone/general,
+            "tool_events":  list  — reserved for future tool-call telemetry,
+            "audio_base64": str   — WAV audio bytes base64-encoded,
+            "session_id":   str,
+        }
     """
     ts = datetime.utcnow().isoformat()
     t0 = time.monotonic()
@@ -107,13 +140,16 @@ async def voice_query(
     # Step 2 — Load session history
     history = _get_history(session_id)
 
-    # Step 3 — Run the LangGraph pipeline
+    # Step 3 — Run the LangGraph pipeline (returns response + intent together)
     try:
-        response_text = run_graph(user_text, history)
+        result = run_graph_full(user_text, history)
     except Exception as exc:
-        logger.error("%s | run_graph failed: %s", ts, exc)
+        logger.error("%s | run_graph_full failed: %s", ts, exc)
         raise HTTPException(status_code=500, detail="Processing failed. Please try again.")
-    logger.info("%s | Graph response: %s", ts, response_text)
+
+    response_text = result["response"]
+    intent        = result["intent"]
+    logger.info("%s | Graph response: %s | intent: %s", ts, response_text, intent)
 
     # Step 4 — Persist history (capped at MAX_HISTORY_TURNS)
     _update_history(session_id, user_text, response_text)
@@ -128,12 +164,17 @@ async def voice_query(
     elapsed = time.monotonic() - t0
     logger.info("%s | /voice/query | session=%s | elapsed=%.2fs", ts, session_id, elapsed)
 
-    # Step 6 — Stream audio back to client
-    return StreamingResponse(
-        iter([audio_out]),
-        media_type="audio/wav",
-        headers={"X-Session-Id": session_id},
-    )
+    # Step 6 — Return JSON so the Angular client gets transcript + audio in one shot.
+    # The audio is base64-encoded because JSON cannot carry raw binary data.
+    # The client decodes it with atob() and creates an object URL for HTMLAudioElement.
+    return {
+        "transcript":   user_text,
+        "response":     response_text,
+        "intent":       intent,
+        "tool_events":  [],
+        "audio_base64": base64.b64encode(audio_out).decode("utf-8"),
+        "session_id":   session_id,
+    }
 
 
 @app.post("/text/query", response_model=TextQueryResponse)
@@ -144,6 +185,10 @@ async def text_query(body: TextQueryRequest):
       - Integration testing without audio hardware
       - Retell AI webhook callbacks (Retell sends/receives text)
       - Dashboard testing during development
+
+    Returns JSON with: response, session_id, intent, tool_events.
+    The intent field lets the Angular client render the correct badge on the
+    message bubble without a second round-trip.
     """
     ts = datetime.utcnow().isoformat()
     t0 = time.monotonic()
@@ -151,16 +196,27 @@ async def text_query(body: TextQueryRequest):
 
     history = _get_history(body.session_id)
     try:
-        response_text = run_graph(body.text, history)
+        result = run_graph_full(body.text, history)
     except Exception as exc:
-        logger.error("%s | /text/query run_graph failed: %s", ts, exc)
+        logger.error("%s | /text/query run_graph_full failed: %s", ts, exc)
         raise HTTPException(status_code=500, detail="Processing failed. Please try again.")
+
+    response_text = result["response"]
+    intent        = result["intent"]
+
     _update_history(body.session_id, body.text, response_text)
 
     elapsed = time.monotonic() - t0
-    logger.info("%s | /text/query | session=%s | elapsed=%.2fs | response=%s",
-                ts, body.session_id, elapsed, response_text)
-    return TextQueryResponse(response=response_text, session_id=body.session_id)
+    logger.info(
+        "%s | /text/query | session=%s | intent=%s | elapsed=%.2fs | response=%s",
+        ts, body.session_id, intent, elapsed, response_text,
+    )
+    return TextQueryResponse(
+        response=response_text,
+        session_id=body.session_id,
+        intent=intent,
+        tool_events=[],
+    )
 
 
 @app.get("/health")
