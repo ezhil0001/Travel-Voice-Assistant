@@ -74,24 +74,21 @@ def test_flights():
 
 
 def test_attractions():
-    geoname_payload = {"lat": "48.8566", "lon": "2.3522"}
-    radius_payload = {
-        "features": [
-            {"properties": {"name": "Eiffel Tower", "kinds": "architecture", "dist": 1200}},
-            {"properties": {"name": "Louvre Museum", "kinds": "museums", "dist": 2100}},
+    # GeoNames searchJSON returns a `geonames` list — no geocode pre-step needed
+    geonames_payload = {
+        "geonames": [
+            {"name": "Eiffel Tower",  "fclName": "Spot", "fcodeName": "Monument"},
+            {"name": "Louvre Museum", "fclName": "Spot", "fcodeName": "Museum"},
         ]
     }
 
-    with patch("tools.attractions_tool.requests.get") as mock_get:
-        mock_get.side_effect = [
-            _mock_response(geoname_payload),
-            _mock_response(radius_payload),
-        ]
+    with patch("tools.attractions_tool.requests.get", return_value=_mock_response(geonames_payload)):
         result = get_attractions.invoke({"city": "Paris"})
 
     assert isinstance(result, list), f"Attractions tool failed: {result}"
     assert result[0]["name"] == "Eiffel Tower"
-    log.info("PASS | test_attractions | attraction list returned correctly")
+    assert "distance" in result[0]
+    log.info("PASS | test_attractions | GeoNames attraction list returned correctly")
 
 
 def test_timezone():

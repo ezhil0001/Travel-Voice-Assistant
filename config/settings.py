@@ -6,7 +6,8 @@ load_dotenv()
 OPENWEATHER_API_KEY   = os.getenv("OPENWEATHER_API_KEY")
 # Amadeus self-service portal is decommissioned — replaced with FlightAPI.io
 FLIGHTAPI_KEY         = os.getenv("FLIGHTAPI_KEY")
-OPENTRIPMAP_API_KEY   = os.getenv("OPENTRIPMAP_API_KEY")
+# GeoNames is used for attraction lookups — requires only a free username, no API key
+GEONAMES_USERNAME     = os.getenv("GEONAMES_USERNAME", "sabari_07045")
 EXCHANGERATE_API_KEY  = os.getenv("EXCHANGERATE_API_KEY")
 SARVAM_API_KEY        = os.getenv("SARVAM_API_KEY")
 DEEPGRAM_API_KEY      = os.getenv("DEEPGRAM_API_KEY")

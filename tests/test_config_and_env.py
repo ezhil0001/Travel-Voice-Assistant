@@ -12,7 +12,7 @@ def test_config_keys_present():
     expected_keys = [
         "OPENWEATHER_API_KEY",
         "FLIGHTAPI_KEY",          # replaced Amadeus after self-service portal shutdown
-        "OPENTRIPMAP_API_KEY",
+        "GEONAMES_USERNAME",       # replaced OpenTripMap — uses free username-based auth
         "EXCHANGERATE_API_KEY",
         "SARVAM_API_KEY",
         "DEEPGRAM_API_KEY",
