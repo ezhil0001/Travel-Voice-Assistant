@@ -1,2 +1,22 @@
-// Global design tokens — updated in Phase 6.
-// Declared here so the folder exists and the includePaths in angular.json resolves.
+// Global design tokens
+$bg-app:      #0d0f12;
+$bg-card:     #1c1f26;
+$bg-input:    #2a2d36;
+$bg-hover:    #252830;
+$border:      #2e3240;
+$text-main:   #e0e0e0;
+$text-muted:  #9aa0ac;
+$text-code:   #c8ccd4;
+$blue:        #1a73e8;
+$blue-dark:   #1557b0;
+$red:         #e53935;
+$green:       #43a047;
+$yellow:      #f9a825;
+$radius-sm:   8px;
+$radius-md:   14px;
+$radius-lg:   22px;
+$radius-pill: 9999px;
+$font:        'Inter', -apple-system, sans-serif;
+$mono:        'JetBrains Mono', 'Fira Code', monospace;
+$transition:  all 0.22s ease;
+

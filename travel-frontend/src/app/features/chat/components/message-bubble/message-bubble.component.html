@@ -1,1 +1,44 @@
-<!-- message-bubble template — implemented in Phase 7 -->
+<div class="message-row" [class.user]="message.role==='user'" [class.assistant]="message.role==='assistant'">
+
+  <!-- Avatar -->
+  <div class="avatar">
+    <span *ngIf="message.role==='assistant'">🤖</span>
+    <span *ngIf="message.role==='user'">👤</span>
+  </div>
+
+  <div class="content-col">
+
+    <!-- Tool activity panel (only for assistant) -->
+    <app-tool-activity
+      *ngIf="message.role==='assistant' && message.toolEvents?.length"
+      [events]="message.toolEvents!"
+    ></app-tool-activity>
+
+    <!-- Message bubble -->
+    <div class="bubble"
+         [class.loading]="message.isLoading"
+         [class.live-transcript]="message.isLiveTranscript">
+
+      <!-- Loading dots -->
+      <div class="dots" *ngIf="message.isLoading">
+        <span></span><span></span><span></span>
+      </div>
+
+      <!-- Message text + live cursor -->
+      <p *ngIf="!message.isLoading">
+        {{ message.text }}<span class="live-cursor" *ngIf="message.isLiveTranscript">|</span>
+      </p>
+
+    </div>
+
+    <!-- Footer: intent badge + timestamp -->
+    <div class="bubble-footer" *ngIf="!message.isLoading">
+      <span class="badge {{ message.intent }}" *ngIf="message.intent && message.role==='assistant'">
+        {{ message.intent }}
+      </span>
+      <span class="timestamp">{{ message.timestamp | date:'HH:mm' }}</span>
+    </div>
+
+  </div>
+</div>
+

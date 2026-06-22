@@ -40,12 +40,40 @@ class SarvamSTT(BaseSTTProvider):
 
     def request(self, audio_bytes: bytes) -> str:
         logger.info("STT | SarvamSTT.request — sending audio (%d bytes)", len(audio_bytes))
-        files   = {"file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
-        data    = {"language_code": "en-IN", "model": "saarika:v2"}
+
+        # Detect the real audio container from the magic bytes.
+        # MediaRecorder in Chrome/Firefox produces WebM (starts with \x1a\x45\xdf\xa3)
+        # even when the code names the blob "audio.wav".  Sarvam accepts WebM
+        # natively, so we send the correct MIME type so the API parses it properly.
+        if audio_bytes[:4] == b"\x1a\x45\xdf\xa3":
+            filename  = "audio.webm"
+            mime_type = "audio/webm"
+        elif audio_bytes[:4] == b"RIFF":
+            filename  = "audio.wav"
+            mime_type = "audio/wav"
+        else:
+            # Fallback — send as-is and let Sarvam auto-detect
+            filename  = "audio.webm"
+            mime_type = "audio/webm"
+
+        files   = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
+        data    = {
+            "model":         "saaras:v3",    # saarika:v2 is deprecated → 400
+            "mode":          "transcribe",   # required for saaras:v3
+            "language_code": "en-IN",
+        }
         headers = {"api-subscription-key": settings.SARVAM_API_KEY}
 
-        response = requests.post(self._URL, headers=headers, files=files, data=data, timeout=15)
-        response.raise_for_status()
+        try:
+            response = requests.post(self._URL, headers=headers, files=files, data=data, timeout=30)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            logger.error(
+                "STT | SarvamSTT HTTP %s — body: %s",
+                exc.response.status_code, exc.response.text[:500],
+            )
+            raise
+
         transcript = response.json().get("transcript", "")
         logger.info("STT | SarvamSTT returned %d chars", len(transcript))
         return transcript

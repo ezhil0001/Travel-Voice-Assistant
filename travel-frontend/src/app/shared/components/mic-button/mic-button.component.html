@@ -1,1 +1,13 @@
-<!-- mic-button template — implemented in Phase 4 -->
+<button
+  class="mic-btn"
+  [class.active]="isActive"
+  [class.processing]="status === 'processing'"
+  [class.speaking]="status === 'speaking'"
+  [disabled]="status === 'processing'"
+  (click)="micClick.emit()"
+  [title]="label"
+>
+  <span class="icon">{{ icon }}</span>
+  <span class="label">{{ label }}</span>
+</button>
+

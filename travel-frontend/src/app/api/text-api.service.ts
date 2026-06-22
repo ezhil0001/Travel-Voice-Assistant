@@ -5,10 +5,10 @@ import { map } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
 
-// Shape of a single tool-call entry returned by the backend.
-// The list is empty today (the graph doesn't expose per-tool telemetry yet),
-// but the contract is defined now so Phase 8/9 components can bind to it
-// without touching this service again.
+// Shape of a single tool-call entry returned alongside the assistant response.
+// The backend does not yet surface per-tool telemetry, so tool_events is always
+// an empty array today — but the type is defined here so the message bubble
+// can bind to it without a service change when the backend adds it.
 export interface TextToolEvent {
   tool_name: string;
   label: string;

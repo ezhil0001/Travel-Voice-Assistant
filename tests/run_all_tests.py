@@ -1,8 +1,8 @@
-"""
-run_all_tests.py — Runs the full test suite and writes a timestamped report to logs/test_results.log.
+"""Runs the full test suite and writes a timestamped report to logs/test_results.log.
 
-Each test module covers a specific concern (config, tools, middleware, model routing, voice).
-Running them together makes it easy to spot regressions before committing.
+Each module targets a specific layer — config first (fast, no mocks), then tools,
+middleware, model routing, voice, agent routing, graph integration, and finally
+the HTTP endpoints. Running them in dependency order makes failure attribution easier.
 """
 import subprocess
 import os
@@ -11,7 +11,8 @@ from datetime import datetime
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "test_results.log")
 
-# Keep this list ordered by dependency depth — config first, server last.
+# Ordered by dependency depth so a failure in config immediately explains
+# failures lower down without having to chase unrelated errors.
 TEST_MODULES = [
     "tests/test_config_and_env.py",
     "tests/test_api_tools.py",

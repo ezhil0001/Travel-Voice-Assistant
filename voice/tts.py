@@ -45,14 +45,22 @@ class SarvamTTS(BaseTTSProvider):
             "Content-Type": "application/json",
         }
         body = {
-            "inputs": [text],
+            "text":                 text,         # bulbul:v3 uses "text", not "inputs"
             "target_language_code": "en-IN",
-            "speaker": "meera",
-            "model": "bulbul:v1",
+            "speaker":              "ritu",        # valid bulbul:v3 speaker (arya not in v3 list)
+            "model":                "bulbul:v3",   # bulbul:v1 deprecated → 400
         }
 
-        response = requests.post(self._URL, headers=headers, json=body, timeout=20)
-        response.raise_for_status()
+        try:
+            response = requests.post(self._URL, headers=headers, json=body, timeout=20)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            logger.error(
+                "TTS | SarvamTTS HTTP %s — body: %s",
+                exc.response.status_code, exc.response.text[:500],
+            )
+            raise
+
         # Sarvam returns audio as base64 inside JSON — decode before returning
         audio_bytes = base64.b64decode(response.json()["audios"][0])
         logger.info("TTS | SarvamTTS returned %d bytes", len(audio_bytes))

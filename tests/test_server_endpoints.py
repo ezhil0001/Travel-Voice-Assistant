@@ -1,9 +1,15 @@
-# Integration tests for server.py endpoints.
+# Tests server.py endpoints using FastAPI's in-process test client.
 #
-# All external dependencies (STT, TTS, LangGraph) are mocked so tests run
-# without a live server, audio hardware, or real API keys. The ASGI test
-# client from httpx drives the FastAPI app directly in-process.
+# All external dependencies (STT, TTS, LangGraph) are mocked so these tests
+# run without Ollama, audio hardware, or valid API keys. The goal is to verify
+# routing, session persistence, error handling, and response shapes — not LLM behaviour.
+#
+# Voice endpoint notes:
+#   /voice/query returns JSON (transcript + audio_base64), not raw audio/wav bytes.
+#   Tests that previously asserted content-type == audio/wav have been updated to
+#   match the current contract.
 
+import base64
 import logging
 import os
 import sys
@@ -56,8 +62,8 @@ def test_health_ollama_down():
 # ── /text/query ────────────────────────────────────────────────────────────────
 
 def test_text_query_returns_response():
-    """POST /text/query must pass text through run_graph and return JSON response."""
-    with patch("server.run_graph", return_value="Tokyo is sunny today.") as mock_graph:
+    """POST /text/query must route through run_graph_full and return response + intent."""
+    with patch("server.run_graph_full", return_value={"response": "Tokyo is sunny today.", "intent": "weather"}):
         client = _get_client()
         response = client.post(
             "/text/query",
@@ -68,18 +74,21 @@ def test_text_query_returns_response():
     body = response.json()
     assert body["response"] == "Tokyo is sunny today."
     assert body["session_id"] == "test_session"
-    mock_graph.assert_called_once()
+    assert body["intent"] == "weather"
+    assert isinstance(body["tool_events"], list)
     log.info("PASS | test_text_query_returns_response")
 
 
 def test_text_query_persists_history():
-    """Consecutive /text/query calls must accumulate history for the same session."""
+    """Consecutive /text/query calls for the same session must accumulate history."""
     sid = "history_test_session"
-    responses = ["Tokyo is nice.", "It is 2PM in Tokyo."]
+    turns = [
+        {"response": "Tokyo is nice.", "intent": "general"},
+        {"response": "It is 2PM in Tokyo.", "intent": "timezone"},
+    ]
 
-    with patch("server.run_graph", side_effect=responses):
+    with patch("server.run_graph_full", side_effect=turns):
         client = _get_client()
-        # Clear any leftover session state
         from server import sessions
         sessions.pop(sid, None)
 
@@ -96,31 +105,36 @@ def test_text_query_persists_history():
 
 
 def test_text_query_history_capped_at_ten_turns():
-    """Session history must never exceed MAX_HISTORY_TURNS × 2 entries."""
+    """Session history must cap at MAX_HISTORY_TURNS regardless of how many messages are sent."""
     sid = "cap_test_session"
 
-    with patch("server.run_graph", return_value="ok"):
+    with patch("server.run_graph_full", return_value={"response": "ok", "intent": "general"}):
         client = _get_client()
         from server import sessions
         sessions.pop(sid, None)
 
-        # Send 15 messages — only the last 10 turns should be kept
         for i in range(15):
             client.post("/text/query", json={"text": f"msg {i}", "session_id": sid})
 
         history = sessions.get(sid, [])
 
-    assert len(history) <= 20  # 10 turns × 2 entries
+    assert len(history) <= 20  # 10 turns × 2 entries (user + assistant)
     log.info("PASS | test_text_query_history_capped_at_ten_turns")
 
 
 # ── /voice/query ───────────────────────────────────────────────────────────────
 
-def test_voice_query_returns_audio():
-    """POST /voice/query must return audio/wav bytes after full STT → graph → TTS pipeline."""
+def test_voice_query_returns_json_with_transcript_and_audio():
+    """/voice/query must return JSON containing transcript, response, intent, and audio_base64.
+
+    The endpoint was changed from StreamingResponse (raw audio bytes) to JSON
+    so the client can read the transcript and intent alongside playing audio —
+    all from a single request. Tests that previously checked content-type audio/wav
+    were updated to match the current contract.
+    """
     fake_audio_out = b"RIFF....fakeaudioresponse"
 
-    with patch("server.run_graph", return_value="Tokyo is sunny today."), \
+    with patch("server.run_graph_full", return_value={"response": "Tokyo is sunny today.", "intent": "weather"}), \
          patch("server._stt") as mock_stt, \
          patch("server._tts") as mock_tts:
 
@@ -135,13 +149,22 @@ def test_voice_query_returns_audio():
         )
 
     assert response.status_code == 200
-    assert response.headers["content-type"] == "audio/wav"
-    assert response.content == fake_audio_out
-    log.info("PASS | test_voice_query_returns_audio")
+    body = response.json()
+    assert body["transcript"] == "What is the weather in Tokyo?"
+    assert body["response"] == "Tokyo is sunny today."
+    assert body["intent"] == "weather"
+    # audio_base64 must decode back to the original bytes
+    assert base64.b64decode(body["audio_base64"]) == fake_audio_out
+    log.info("PASS | test_voice_query_returns_json_with_transcript_and_audio")
 
 
 def test_voice_query_stt_failure_raises_422():
-    """When STT returns empty string, /voice/query must return HTTP 422."""
+    """When STT returns an empty transcript, /voice/query must respond 422.
+
+    An empty transcript means the audio was either silent or too short for
+    the STT engine to process. A 422 tells the client to prompt the user
+    to try speaking again rather than silently swallowing the error.
+    """
     with patch("server._stt") as mock_stt:
         mock_stt.transcribe.return_value = ""
         client = _get_client()
@@ -155,8 +178,13 @@ def test_voice_query_stt_failure_raises_422():
 
 
 def test_voice_query_tts_failure_raises_502():
-    """When TTS returns empty bytes, /voice/query must return HTTP 502."""
-    with patch("server.run_graph", return_value="Some response"), \
+    """When TTS returns empty bytes, /voice/query must respond 502.
+
+    Empty TTS output indicates a provider-side failure. Returning 502 lets
+    the client distinguish between a bad request (4xx) and an upstream
+    dependency failure that may resolve on retry.
+    """
+    with patch("server.run_graph_full", return_value={"response": "Some response", "intent": "general"}), \
          patch("server._stt") as mock_stt, \
          patch("server._tts") as mock_tts:
 

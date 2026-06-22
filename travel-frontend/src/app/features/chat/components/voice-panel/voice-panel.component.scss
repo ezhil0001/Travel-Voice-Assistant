@@ -1,1 +1,160 @@
-// voice-panel styles — implemented in Phase 8.
+@use 'variables' as *;
+
+.voice-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+  height: 100%;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-muted;
+  align-self: flex-start;
+}
+
+// Pulsing "Session Active" indicator shown while conversationActive = true
+.session-badge {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #43a047;
+  background: #43a04720;
+  border: 1px solid #43a04740;
+  border-radius: $radius-pill;
+  padding: 3px 10px;
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #43a047;
+    animation: pulse-dot 1.2s infinite;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+.action-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.action-btn {
+  border-radius: $radius-pill;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: $transition;
+  border: 1px solid $border;
+}
+
+.skip-btn {
+  background: #2a2d36;
+  color: $text-main;
+
+  &:hover {
+    background: #1a73e820;
+    border-color: $blue;
+    color: $blue;
+  }
+}
+
+.end-btn {
+  background: #c6282820;
+  border-color: $red;
+  color: #ef9a9a;
+
+  &:hover {
+    background: #c62828;
+    color: white;
+  }
+}
+
+
+
+.countdown-bar {
+  width: 100%;
+  background: $bg-card;
+  border-radius: $radius-pill;
+  padding: 6px 12px;
+  position: relative;
+  overflow: hidden;
+
+  span {
+    font-size: 12px;
+    color: $yellow;
+    position: relative;
+    z-index: 1;
+  }
+
+  .bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: #f9a82520;
+    transition: width 0.9s linear;
+    border-radius: $radius-pill;
+  }
+}
+
+.skip-btn {
+  background: #2a2d36;
+  border: 1px solid $border;
+  color: $text-main;
+  border-radius: $radius-pill;
+  padding: 8px 20px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: $transition;
+
+  &:hover {
+    background: #e5393520;
+    border-color: $red;
+    color: $red;
+  }
+}
+
+.error-msg {
+  background: #c6282820;
+  border: 1px solid $red;
+  color: #ef9a9a;
+  border-radius: $radius-md;
+  padding: 10px 14px;
+  font-size: 13px;
+  text-align: center;
+  width: 100%;
+}
+
+.tool-log-title {
+  font-size: 12px;
+  color: $text-muted;
+  align-self: flex-start;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.no-tools {
+  font-size: 12px;
+  color: #4a4f5a;
+  text-align: center;
+  border: 1px dashed $border;
+  border-radius: $radius-md;
+  padding: 20px;
+  width: 100%;
+}
+

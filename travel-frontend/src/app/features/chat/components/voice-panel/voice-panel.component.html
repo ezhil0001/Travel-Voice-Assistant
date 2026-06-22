@@ -1,1 +1,78 @@
-<!-- voice-panel template — implemented in Phase 8 -->
+<div class="voice-panel" *ngIf="{ vs: voiceState$ | async, events: toolEvents$ | async } as vm">
+
+  <h3 class="panel-title">🎙️ Voice</h3>
+
+  <!-- Continuous session indicator -->
+  <div class="session-badge" *ngIf="conversationActive">
+    <span class="dot"></span> Session Active
+  </div>
+
+  <!-- VAD silence-countdown bar — shown when speech has been heard and user paused -->
+  <div class="countdown-bar" *ngIf="vm.vs?.status === 'silence_countdown'">
+    <!-- bar shrinks left-to-right as the grace window drains -->
+    <div class="bar-fill" [style.width]="((vm.vs!.silenceCountdown / 3) * 100) + '%'"></div>
+    <span>Sending in {{ vm.vs?.silenceCountdown }}s…</span>
+  </div>
+
+  <!-- Audio wave — red while listening -->
+  <app-audio-wave
+    [isActive]="vm.vs?.status === 'listening' || vm.vs?.status === 'silence_countdown'"
+    [color]="'#e53935'"
+  ></app-audio-wave>
+
+  <!-- Audio wave — green while TTS is speaking -->
+  <app-audio-wave
+    [isActive]="vm.vs?.status === 'speaking'"
+    [color]="'#43a047'"
+  ></app-audio-wave>
+
+  <!-- Mic button — starts the continuous session from idle -->
+  <app-mic-button
+    [status]="vm.vs?.status || 'idle'"
+    (micClick)="onMicClick()"
+  ></app-mic-button>
+
+  <!-- Action buttons row -->
+  <div class="action-row">
+
+    <!-- Skip TTS and immediately start listening again -->
+    <button
+      class="action-btn skip-btn"
+      *ngIf="vm.vs?.isTtsSpeaking"
+      (click)="skipTts()"
+      title="Skip playback and listen now"
+    >
+      ⏭ Skip &amp; Listen
+    </button>
+
+    <!-- End the continuous session entirely -->
+    <button
+      class="action-btn end-btn"
+      *ngIf="conversationActive"
+      (click)="stopConversation()"
+      title="End voice session"
+    >
+      ✕ End Session
+    </button>
+
+  </div>
+
+  <!-- Error message -->
+  <div class="error-msg" *ngIf="vm.vs?.status === 'error'">
+    ⚠️ {{ vm.vs?.errorMessage }}
+  </div>
+
+  <div class="divider" style="margin: 16px 0"></div>
+
+  <!-- Tool Activity Log -->
+  <div class="tool-log-title" *ngIf="vm.events && vm.events.length > 0">
+    📡 Tool Activity
+  </div>
+  <app-tool-activity [events]="vm.events || []"></app-tool-activity>
+
+  <!-- Empty state -->
+  <div class="no-tools" *ngIf="!vm.events || vm.events.length === 0">
+    <span>Tool calls will appear here</span>
+  </div>
+
+</div>

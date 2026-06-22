@@ -1,1 +1,4 @@
-<!-- toast template — implemented in Phase 5 -->
+<div class="toast" [class.show]="showing" [ngClass]="'type-' + type">
+  {{ message }}
+</div>
+

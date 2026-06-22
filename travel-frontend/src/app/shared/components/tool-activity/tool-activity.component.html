@@ -1,1 +1,44 @@
-<!-- tool-activity template — implemented in Phase 5 -->
+<div class="tool-activity" *ngIf="events.length > 0">
+  <div class="tool-event" *ngFor="let event of events">
+
+    <!-- Collapsed header (always visible) -->
+    <div class="event-header" (click)="toggle(event.id)">
+      <span class="tool-icon">{{ getToolIcon(event.toolName) }}</span>
+      <span class="tool-label">{{ event.label }}</span>
+      <span class="status-icon">{{ getStatusIcon(event.status) }}</span>
+      <span class="chevron">{{ isExpanded(event.id) ? '▾' : '▸' }}</span>
+    </div>
+
+    <!-- Expanded detail panel -->
+    <div class="event-detail" *ngIf="isExpanded(event.id)">
+      <div class="detail-row">
+        <span class="detail-key">Tool</span>
+        <span class="detail-val code">{{ event.toolName }}</span>
+      </div>
+      <div class="detail-row" *ngIf="event.detail">
+        <span class="detail-key">Input</span>
+        <span class="detail-val code">{{ event.detail }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-key">Status</span>
+        <span class="detail-val"
+          [class.success]="event.status === 'success'"
+          [class.error]="event.status === 'error'"
+          [class.running]="event.status === 'running'"
+        >
+          {{ event.status | titlecase }}
+        </span>
+      </div>
+      <div class="detail-row error-detail" *ngIf="event.errorMessage">
+        <span class="detail-key">Error</span>
+        <span class="detail-val error-msg">{{ event.errorMessage }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-key">Time</span>
+        <span class="detail-val">{{ event.timestamp | date:'HH:mm:ss' }}</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+

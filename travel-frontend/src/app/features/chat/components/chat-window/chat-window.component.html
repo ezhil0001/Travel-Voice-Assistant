@@ -1,1 +1,45 @@
-<!-- chat-window template — implemented in Phase 9 -->
+<div class="chat-window"
+     *ngIf="{ msgs: messages$ | async, vs: voiceState$ | async } as vm">
+
+  <!-- Messages list -->
+  <div class="messages-list">
+    <app-message-bubble
+      *ngFor="let msg of vm.msgs; trackBy: trackById"
+      [message]="msg"
+    ></app-message-bubble>
+    <div #messagesEnd></div>
+  </div>
+
+  <!-- Input area -->
+  <div class="input-area">
+
+    <div class="input-row">
+      <textarea
+        [value]="inputText"
+        (input)="onTextInput($event)"
+        (keydown)="onKeydown($event)"
+        [placeholder]="vm.vs?.status === 'listening'
+          ? 'Listening — speak now…'
+          : vm.vs?.status === 'silence_countdown'
+          ? 'Sending in ' + (vm.vs!.silenceCountdown | number:'1.1-1') + 's…'
+          : vm.vs?.status === 'processing'
+          ? 'Processing…'
+          : 'Message Travel Assistant…'"
+        rows="1"
+        [class.voice-active]="isVoiceActive(vm.vs)"
+        [disabled]="isVoiceActive(vm.vs)"
+      ></textarea>
+
+      <button
+        class="send-btn"
+        (click)="sendText()"
+        [disabled]="!inputText.trim() || isSubmitting || isVoiceActive(vm.vs)"
+        title="Send message"
+      >
+        →
+      </button>
+    </div>
+
+  </div>
+</div>
+

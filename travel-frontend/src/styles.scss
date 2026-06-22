@@ -1,1 +1,40 @@
-/* You can add global styles to this file, and also import other style files */
+@use 'variables' as *;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: $font;
+  background: $bg-app;
+  color: $text-main;
+}
+
+::-webkit-scrollbar       { width: 5px; }
+::-webkit-scrollbar-track { background: $bg-card; }
+::-webkit-scrollbar-thumb { background: $border; border-radius: 3px; }
+
+button { font-family: $font; }
+
+.divider { height: 1px; background: $border; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: $radius-pill;
+
+  &.weather     { background: #1565c020; color: #42a5f5; border: 1px solid #1565c040; }
+  &.flight      { background: #6a1b9a20; color: #ce93d8; border: 1px solid #6a1b9a40; }
+  &.attractions { background: #00695c20; color: #4db6ac; border: 1px solid #00695c40; }
+  &.currency    { background: #2e7d3220; color: #66bb6a; border: 1px solid #2e7d3240; }
+  &.timezone    { background: #e6510020; color: #ffa726; border: 1px solid #e6510040; }
+  &.general     { background: #37474f20; color: #90a4ae; border: 1px solid #37474f40; }
+}
+

@@ -33,4 +33,5 @@ export interface Message {
   intent?: VoiceIntent;      // set on assistant messages so the badge renders
   toolEvents?: ToolEvent[];  // populated once the backend responds
   isLoading?: boolean;       // true while waiting for the backend response
+  isLiveTranscript?: boolean; // true while STT is streaming — shows live cursor in bubble
 }

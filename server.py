@@ -1,10 +1,10 @@
-# FastAPI entry point — exposes the travel assistant over HTTP.
+# FastAPI entry point — exposes the travel assistant over HTTP and WebSocket.
 #
-# Three endpoints:
+# Endpoints:
 #   POST /voice/query  — full voice pipeline: STT → graph → TTS → base64 JSON
-#                        (changed from raw StreamingResponse so the Angular client
-#                         can receive transcript, intent, and audio in one response)
-#   POST /text/query   — text-only: skips STT/TTS, useful for testing and Retell webhooks
+#   POST /text/query   — text-only pipeline: skips STT/TTS, returns JSON
+#   WS   /voice/stream — real-time streaming STT (PCM chunks → transcript events)
+#   WS   /tts/stream   — real-time streaming TTS (text → audio chunk events)
 #   GET  /health       — liveness check for Ollama and Sarvam connectivity
 #
 # Session state is kept in a process-local dict keyed by session_id.
@@ -15,17 +15,19 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 import requests as http_requests
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from config import settings
-from graph.travel_graph import run_graph, run_graph_full
+from graph.travel_graph import run_graph_full
 from voice.stt import STTProvider
+from voice.stt_stream import stt_stream_endpoint
 from voice.tts import TTSProvider
+from voice.tts_stream import tts_stream_endpoint
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -73,14 +75,11 @@ class TextQueryRequest(BaseModel):
     session_id: str = "default"
 
 
-# tool_events is an empty list for now — the graph doesn't yet surface per-tool
-# call metadata to the HTTP layer. The field is included so the Angular service
-# contract is satisfied without any client-side workarounds.
 class TextQueryResponse(BaseModel):
     response: str
     session_id: str
-    intent: str = "general"          # renamed from detected_intent to match Angular contract
-    tool_events: List[dict] = []     # reserved for future tool-call telemetry
+    intent: str = "general"
+    tool_events: List[dict] = []
 
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
@@ -105,31 +104,24 @@ async def voice_query(
     audio_file: UploadFile = File(...),
     session_id: str = Header(default="default"),
 ):
-    """Full voice pipeline: audio → STT → graph → TTS → JSON.
+    """Full voice pipeline: audio → STT → LangGraph → TTS → JSON.
 
-    Accepts a multipart form upload containing raw audio (WAV/MP3).
-
-    Previously this returned a raw audio/wav StreamingResponse, which meant
-    the client had no way to access the transcript, response text, or intent
-    alongside the audio. Changed to return a JSON body so the Angular client
-    can populate message bubbles, intent badges, and tool activity panels
-    without a separate text/query call.
+    Accepts a multipart/form-data upload containing a WAV or MP3 recording.
+    Returns a single JSON response so the client can populate the message bubble,
+    intent badge, and audio player from one round-trip — no follow-up request needed.
 
     Response shape:
-        {
-            "transcript":   str   — what the STT heard,
-            "response":     str   — the assistant's text reply,
-            "intent":       str   — weather/flight/attractions/currency/timezone/general,
-            "tool_events":  list  — reserved for future tool-call telemetry,
-            "audio_base64": str   — WAV audio bytes base64-encoded,
-            "session_id":   str,
-        }
+        transcript:   what the STT heard
+        response:     the assistant's text reply
+        intent:       weather / flight / attractions / currency / timezone / general
+        tool_events:  list of tool calls made during processing (empty until graph exposes them)
+        audio_base64: WAV bytes base64-encoded — decode with atob() and play via AudioContext
+        session_id:   echoed back so the client can correlate multi-turn history
     """
     ts = datetime.utcnow().isoformat()
     t0 = time.monotonic()
     logger.info("%s | /voice/query | session=%s", ts, session_id)
 
-    # Step 1 — Transcribe audio to text
     audio_bytes = await audio_file.read()
     user_text = _stt.transcribe(audio_bytes)
     logger.info("%s | STT result: %s", ts, user_text)
@@ -137,10 +129,8 @@ async def voice_query(
     if not user_text:
         raise HTTPException(status_code=422, detail="Could not transcribe audio. Please try again.")
 
-    # Step 2 — Load session history
     history = _get_history(session_id)
 
-    # Step 3 — Run the LangGraph pipeline (returns response + intent together)
     try:
         result = run_graph_full(user_text, history)
     except Exception as exc:
@@ -151,10 +141,8 @@ async def voice_query(
     intent        = result["intent"]
     logger.info("%s | Graph response: %s | intent: %s", ts, response_text, intent)
 
-    # Step 4 — Persist history (capped at MAX_HISTORY_TURNS)
     _update_history(session_id, user_text, response_text)
 
-    # Step 5 — Synthesise speech
     audio_out = _tts.synthesize(response_text)
     logger.info("%s | TTS synthesised %d bytes", ts, len(audio_out))
 
@@ -164,9 +152,6 @@ async def voice_query(
     elapsed = time.monotonic() - t0
     logger.info("%s | /voice/query | session=%s | elapsed=%.2fs", ts, session_id, elapsed)
 
-    # Step 6 — Return JSON so the Angular client gets transcript + audio in one shot.
-    # The audio is base64-encoded because JSON cannot carry raw binary data.
-    # The client decodes it with atob() and creates an object URL for HTMLAudioElement.
     return {
         "transcript":   user_text,
         "response":     response_text,
@@ -217,6 +202,33 @@ async def text_query(body: TextQueryRequest):
         intent=intent,
         tool_events=[],
     )
+
+
+@app.websocket("/voice/stream")
+async def voice_stream(websocket: WebSocket):
+    """Real-time streaming STT endpoint.
+
+    Proxies binary audio chunks from the browser to Sarvam (or Deepgram as
+    fallback) and forwards transcript frames back as JSON events.
+
+    Event contract — see voice/stt_stream.py for full documentation.
+    """
+    await stt_stream_endpoint(websocket)
+
+
+@app.websocket("/tts/stream")
+async def tts_stream(websocket: WebSocket):
+    """Real-time streaming TTS endpoint.
+
+    Accepts a start_tts JSON frame with the assistant's response text,
+    opens an upstream WebSocket to Sarvam (or Deepgram as fallback),
+    and streams base64-encoded audio chunks back to the browser as they
+    are generated. The browser can play each chunk immediately rather than
+    waiting for the full audio file to be synthesised.
+
+    Event contract — see voice/tts_stream.py for full documentation.
+    """
+    await tts_stream_endpoint(websocket)
 
 
 @app.get("/health")

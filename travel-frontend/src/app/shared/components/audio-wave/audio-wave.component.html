@@ -1,1 +1,10 @@
-<!-- audio-wave template — implemented in Phase 4 -->
+<div class="wave" *ngIf="isActive">
+  <span
+    class="bar"
+    *ngFor="let b of bars"
+    [style.animation-delay]="(b * 0.08) + 's'"
+    [style.background]="color"
+  ></span>
+</div>
+<div class="wave-placeholder" *ngIf="!isActive"></div>
+

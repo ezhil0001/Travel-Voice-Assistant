@@ -6,6 +6,4 @@ import { Component } from '@angular/core';
   standalone: false,
   styleUrl: './app.component.scss'
 })
-export class AppComponent {
-  title = 'travel-frontend';
-}
+export class AppComponent {}

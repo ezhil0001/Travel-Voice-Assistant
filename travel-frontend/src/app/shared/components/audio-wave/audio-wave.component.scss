@@ -1,1 +1,22 @@
-// audio-wave styles — implemented in Phase 4.
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 32px;
+}
+
+.bar {
+  width: 3px;
+  border-radius: 2px;
+  height: 8px;
+  animation: wave-anim 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes wave-anim {
+  to { height: 28px; }
+}
+
+.wave-placeholder {
+  height: 32px;
+}
+

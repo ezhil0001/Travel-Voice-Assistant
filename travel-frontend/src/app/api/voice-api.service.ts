@@ -31,7 +31,13 @@ export class VoiceApiService {
    */
   sendAudio(audioBlob: Blob, sessionId: string): Observable<VoiceQueryResponse> {
     const formData = new FormData();
-    formData.append('audio_file', audioBlob, 'recording.wav');
+    // MediaRecorder in Chrome/Firefox always produces audio/webm regardless of
+    // what MIME type the code requested.  Naming it .wav while it is actually
+    // WebM makes Sarvam's REST endpoint fail with a 400.  Detect the real type
+    // and send a consistent filename so the server-side magic-byte check works.
+    const isWebm = audioBlob.type.includes('webm') || audioBlob.type === '';
+    const filename = isWebm ? 'recording.webm' : 'recording.wav';
+    formData.append('audio_file', audioBlob, filename);
 
     return this.http
       .post<any>(
