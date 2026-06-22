@@ -199,3 +199,41 @@ def test_voice_query_tts_failure_raises_502():
 
     assert response.status_code == 502
     log.info("PASS | test_voice_query_tts_failure_raises_502")
+
+
+# ── /tts/synthesize ────────────────────────────────────────────────────────────
+
+def test_tts_synthesize_returns_audio_base64():
+    """/tts/synthesize must return base64-encoded audio for valid text."""
+    fake_audio = b"\xff\xfe" + b"\x00" * 20   # minimal fake WAV bytes
+
+    with patch("server._tts") as mock_tts:
+        mock_tts.synthesize.return_value = fake_audio
+        client = _get_client()
+        response = client.post("/tts/synthesize", json={"text": "Hello there!"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "audio_base64" in body
+    decoded = base64.b64decode(body["audio_base64"])
+    assert decoded == fake_audio
+    log.info("PASS | test_tts_synthesize_returns_audio_base64")
+
+
+def test_tts_synthesize_empty_text_raises_422():
+    """/tts/synthesize must reject empty text with 422."""
+    client = _get_client()
+    response = client.post("/tts/synthesize", json={"text": "   "})
+    assert response.status_code == 422
+    log.info("PASS | test_tts_synthesize_empty_text_raises_422")
+
+
+def test_tts_synthesize_provider_failure_raises_502():
+    """/tts/synthesize must return 502 when TTS provider returns empty bytes."""
+    with patch("server._tts") as mock_tts:
+        mock_tts.synthesize.return_value = b""
+        client = _get_client()
+        response = client.post("/tts/synthesize", json={"text": "Hello!"})
+
+    assert response.status_code == 502
+    log.info("PASS | test_tts_synthesize_provider_failure_raises_502")

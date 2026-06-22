@@ -84,6 +84,10 @@ class TextQueryResponse(BaseModel):
     agent_responses: dict = {}
 
 
+class TtsSynthesizeRequest(BaseModel):
+    text: str
+
+
 # ── Helper ─────────────────────────────────────────────────────────────────────
 
 def _get_history(session_id: str) -> list:
@@ -208,6 +212,30 @@ async def text_query(body: TextQueryRequest):
         tool_events=result.get("tool_events", []),
         agent_responses=result.get("agent_responses", {}),
     )
+
+
+@app.post("/tts/synthesize")
+async def tts_synthesize(body: TtsSynthesizeRequest):
+    """Synthesise arbitrary text to speech without running the LangGraph pipeline.
+
+    Used by the frontend to auto-play the welcome message on page load so the
+    user hears the greeting without pressing the mic button.
+
+    Returns:
+        audio_base64: WAV bytes base64-encoded — decode with atob() and play
+                      via HTMLAudioElement or AudioContext.
+    """
+    ts = datetime.utcnow().isoformat()
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text must not be empty")
+
+    audio_out = _tts.synthesize(text)
+    if not audio_out:
+        raise HTTPException(status_code=502, detail="TTS synthesis failed.")
+
+    logger.info("%s | /tts/synthesize | %d bytes", ts, len(audio_out))
+    return {"audio_base64": base64.b64encode(audio_out).decode("utf-8")}
 
 
 @app.websocket("/voice/stream")

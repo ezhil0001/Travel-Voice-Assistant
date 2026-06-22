@@ -61,6 +61,22 @@ export class VoiceApiService {
   }
 
   /**
+   * Calls POST /tts/synthesize to convert plain text to speech without
+   * going through the full STT → LangGraph → TTS pipeline.
+   * Used exclusively for the auto-played welcome message on page load.
+   */
+  synthesizeWelcome(text: string): Observable<Blob> {
+    return this.http
+      .post<{ audio_base64: string }>(
+        `${environment.apiBaseUrl}/tts/synthesize`,
+        { text }
+      )
+      .pipe(
+        map(res => this.base64ToBlob(res.audio_base64, 'audio/wav'))
+      );
+  }
+
+  /**
    * Decodes a base64 string into a Blob the HTMLAudioElement can play.
    *
    * Using Uint8Array avoids the deprecated btoa/atob string-length limit
