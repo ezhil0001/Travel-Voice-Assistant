@@ -9,6 +9,7 @@ import { SessionService } from '../../../../core/services/session.service';
 import { LoggerService } from '../../../../core/services/logger.service';
 import { Message, ToolEvent } from '../../../../models/message.model';
 import { VoiceState } from '../../../../models/voice-state.model';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 
 @Component({
   standalone: false,
@@ -29,6 +30,9 @@ export class ChatWindowComponent implements AfterViewChecked, OnInit, OnDestroy 
   isSubmitting = false;
 
   private voiceSub?: Subscription;
+  private msgCountSub?: Subscription;
+  /** True only when we know a new message was just appended — cleared after one scroll. */
+  private shouldScroll = false;
 
   constructor(
     private chatState: ChatStateService,
@@ -50,14 +54,29 @@ export class ChatWindowComponent implements AfterViewChecked, OnInit, OnDestroy 
         this.inputText = '';
       }
     });
+
+    // Only request a scroll when the number of messages genuinely increases
+    // (i.e. a new message was appended). UI-only state changes such as the
+    // Tool Activity panel opening/closing will NOT trigger this because they
+    // don't change the message count.
+    this.msgCountSub = this.messages$
+      .pipe(
+        map(msgs => msgs.length),
+        distinctUntilChanged(),
+      )
+      .subscribe(() => { this.shouldScroll = true; });
   }
 
   ngAfterViewChecked(): void {
-    this.scrollToBottom();
+    if (this.shouldScroll) {
+      this.scrollToBottom();
+      this.shouldScroll = false;
+    }
   }
 
   ngOnDestroy(): void {
     this.voiceSub?.unsubscribe();
+    this.msgCountSub?.unsubscribe();
   }
 
   trackById(_: number, msg: Message): string {

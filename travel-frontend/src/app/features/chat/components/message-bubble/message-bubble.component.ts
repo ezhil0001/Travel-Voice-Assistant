@@ -32,7 +32,7 @@ export class MessageBubbleComponent implements OnChanges {
   isMultiIntent          = false;
 
   /** Per-message view mode — toggled by the tab buttons. */
-  viewMode: ViewMode = 'optimised';
+  viewMode: ViewMode = 'summary';
 
   ngOnChanges(): void {
     if (this.message.role === 'assistant' && !this.message.isLoading) {
