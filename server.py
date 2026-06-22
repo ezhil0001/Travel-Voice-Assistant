@@ -82,6 +82,7 @@ class TextQueryResponse(BaseModel):
     intents: List[str] = []
     tool_events: List[dict] = []
     agent_responses: dict = {}
+    summary_response: str = ""
 
 
 class TtsSynthesizeRequest(BaseModel):
@@ -159,14 +160,15 @@ async def voice_query(
     logger.info("%s | /voice/query | session=%s | elapsed=%.2fs", ts, session_id, elapsed)
 
     return {
-        "transcript":      user_text,
-        "response":        response_text,
-        "intent":          intent,
-        "intents":         result.get("intents", [intent]),
-        "tool_events":     result.get("tool_events", []),
-        "agent_responses": result.get("agent_responses", {}),
-        "audio_base64":    base64.b64encode(audio_out).decode("utf-8"),
-        "session_id":      session_id,
+        "transcript":        user_text,
+        "response":          response_text,
+        "intent":            intent,
+        "intents":           result.get("intents", [intent]),
+        "tool_events":       result.get("tool_events", []),
+        "agent_responses":   result.get("agent_responses", {}),
+        "summary_response":  result.get("summary_response", response_text),
+        "audio_base64":      base64.b64encode(audio_out).decode("utf-8"),
+        "session_id":        session_id,
     }
 
 
@@ -211,6 +213,7 @@ async def text_query(body: TextQueryRequest):
         intents=result.get("intents", [intent]),
         tool_events=result.get("tool_events", []),
         agent_responses=result.get("agent_responses", {}),
+        summary_response=result.get("summary_response", response_text),
     )
 
 

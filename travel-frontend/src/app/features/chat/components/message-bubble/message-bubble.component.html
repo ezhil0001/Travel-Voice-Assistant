@@ -62,9 +62,9 @@
         <div class="markdown-body" [innerHTML]="message.text | markdown"></div>
       </div>
 
-      <!-- ── SUMMARY: always plain merged text in one bubble ── -->
+      <!-- ── SUMMARY: LLM-generated conversational summary derived from optimised output ── -->
       <div class="bubble assistant-bubble summary-bubble" *ngIf="viewMode === 'summary'">
-        <p>{{ message.text }}</p>
+        <p>{{ message.summaryResponse || message.text }}</p>
       </div>
 
     </ng-container>

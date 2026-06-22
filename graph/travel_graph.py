@@ -41,6 +41,7 @@ with open(_PROMPTS_PATH, encoding="utf-8") as _f:
 
 _MERGE_TEMPLATE: str = _PROMPTS["merge_responses_prompt"]
 _BATCH_FOCUSED_TEMPLATE: str = _PROMPTS["batch_focused_query_prompt"]
+_SUMMARY_TEMPLATE: str = _PROMPTS["summary_prompt"]
 
 # Python-level lookup maps — used to validate/fix LLM output for flight and
 # timezone queries. Loaded from prompts.json so they can be extended without
@@ -413,23 +414,68 @@ def _validate_timezone_query(focused: str, full_query: str) -> str:
     return focused if focused else full_query
 
 
+# ── Node: summarize_response ──────────────────────────────────────────────────
+
+def summarize_response_node(state: TravelState) -> TravelState:
+    """Generate a short conversational summary from the optimised agent output.
+
+    The optimised content (agent_responses joined, or final_response for
+    single-intent) is passed back to the LLM with a summarization prompt.
+    This produces the Summary View content — derived directly from the
+    Optimised View so both tabs are always synchronized.
+
+    Writes: summary_response (2-4 sentence plain-text, no markdown)
+    """
+    agent_responses = state.get("agent_responses", {})
+
+    # Build the optimised content that the Summary should be derived from.
+    # Multi-intent: join all agent responses; single-intent: use the one response.
+    if len(agent_responses) > 1:
+        optimised_text = "\n\n".join(
+            f"=== {intent.upper()} ===\n{resp}"
+            for intent, resp in agent_responses.items()
+        )
+    elif len(agent_responses) == 1:
+        optimised_text = next(iter(agent_responses.values()))
+    else:
+        # Nothing to summarise — fall back to the merged final response
+        optimised_text = state.get("final_response", "")
+
+    if not optimised_text.strip():
+        return {**state, "summary_response": state.get("final_response", "")}
+
+    prompt = _SUMMARY_TEMPLATE.format(optimised_response=optimised_text)
+
+    try:
+        summary = ModelLayer().invoke(prompt).strip()
+        # Strip any stray markdown that crept in despite the prompt instruction
+        summary = summary.replace("**", "").replace("##", "").replace("* ", "").replace("- ", "")
+        logger.info("summarize_response_node | summary_len=%d", len(summary))
+        return {**state, "summary_response": summary}
+    except Exception as exc:
+        logger.error("summarize_response_node | LLM failed: %s — using final_response", exc)
+        return {**state, "summary_response": state.get("final_response", "")}
+
+
 # ── Graph assembly ─────────────────────────────────────────────────────────────
 
 def _build_graph() -> StateGraph:
     graph = StateGraph(TravelState)
 
-    graph.add_node("pre_middleware",   pre_middleware_node)
-    graph.add_node("supervisor",       supervisor_node)
-    graph.add_node("run_agents",       run_agents_node)
-    graph.add_node("merge_responses",  merge_responses_node)
-    graph.add_node("post_middleware",  post_middleware_node)
+    graph.add_node("pre_middleware",      pre_middleware_node)
+    graph.add_node("supervisor",          supervisor_node)
+    graph.add_node("run_agents",          run_agents_node)
+    graph.add_node("merge_responses",     merge_responses_node)
+    graph.add_node("post_middleware",     post_middleware_node)
+    graph.add_node("summarize_response",  summarize_response_node)
 
-    graph.add_edge(START,            "pre_middleware")
-    graph.add_edge("pre_middleware", "supervisor")
-    graph.add_edge("supervisor",     "run_agents")
-    graph.add_edge("run_agents",     "merge_responses")
-    graph.add_edge("merge_responses","post_middleware")
-    graph.add_edge("post_middleware", END)
+    graph.add_edge(START,               "pre_middleware")
+    graph.add_edge("pre_middleware",    "supervisor")
+    graph.add_edge("supervisor",        "run_agents")
+    graph.add_edge("run_agents",        "merge_responses")
+    graph.add_edge("merge_responses",   "post_middleware")
+    graph.add_edge("post_middleware",   "summarize_response")
+    graph.add_edge("summarize_response", END)
 
     return graph.compile()
 
@@ -466,6 +512,7 @@ def run_graph_full(user_input: str, history: list | None = None) -> dict:
         "agent_responses":      {},
         "tool_events":          [],
         "final_response":       "",
+        "summary_response":     "",
         "error":                "",
     }
 
@@ -476,15 +523,17 @@ def run_graph_full(user_input: str, history: list | None = None) -> dict:
 
     intents         = result.get("detected_intents", ["general"])
     final           = result.get("final_response", "Sorry, I couldn't process your request right now.")
+    summary         = result.get("summary_response", final)
     tool_events     = result.get("tool_events", [])
     agent_responses = result.get("agent_responses", {})
 
     logger.info("run_graph_full | intents=%s | len=%d | elapsed=%.2fs", intents, len(final), elapsed)
 
     return {
-        "response":        final,
-        "intent":          intents[0] if intents else "general",
-        "intents":         intents,
-        "tool_events":     tool_events,
-        "agent_responses": agent_responses,
+        "response":         final,
+        "summary_response": summary,
+        "intent":           intents[0] if intents else "general",
+        "intents":          intents,
+        "tool_events":      tool_events,
+        "agent_responses":  agent_responses,
     }

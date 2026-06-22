@@ -31,7 +31,8 @@ export interface Message {
   timestamp: Date;
   intent?: VoiceIntent;
   intents?: VoiceIntent[];           // all detected intents for multi-intent queries
-  agentResponses?: Record<string, string>; // per-intent concise responses from the backend
+  agentResponses?: Record<string, string>; // per-intent optimised responses from the backend
+  summaryResponse?: string;          // short conversational summary derived from optimised output
   toolEvents?: ToolEvent[];
   isLoading?: boolean;
   isLiveTranscript?: boolean;

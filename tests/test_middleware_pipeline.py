@@ -56,6 +56,60 @@ def test_pre_model_metadata_keys():
     log.info("PASS | test_pre_model_metadata_keys")
 
 
+# ── Context retention / pronoun resolution tests ──────────────────────────────
+
+def test_resolve_there_with_history():
+    """'there' should be replaced with the last city from history."""
+    mw = PreModelMiddleware()
+    history = [
+        {"role": "user",      "content": "I want to visit Tokyo."},
+        {"role": "assistant", "content": "Tokyo is a fantastic destination!"},
+    ]
+    result = mw.process("What time is it there?", history)
+    assert "Tokyo" in result["cleaned_input"], (
+        f"Expected 'Tokyo' in cleaned_input, got: {result['cleaned_input']!r}"
+    )
+    assert "there" not in result["cleaned_input"].lower()
+    log.info("PASS | test_resolve_there_with_history | resolved: %s", result["cleaned_input"])
+
+
+def test_resolve_that_city_with_history():
+    """'that city' should be replaced with the last city from history."""
+    mw = PreModelMiddleware()
+    history = [{"role": "user", "content": "Tell me about Paris."}]
+    result = mw.process("Is that city expensive?", history)
+    assert "Paris" in result["cleaned_input"]
+    log.info("PASS | test_resolve_that_city_with_history | resolved: %s", result["cleaned_input"])
+
+
+def test_no_resolve_when_city_already_explicit():
+    """When the query already has a city, pronouns must not trigger substitution."""
+    mw = PreModelMiddleware()
+    history = [{"role": "user", "content": "Tell me about Tokyo."}]
+    result = mw.process("What time is it in Paris?", history)
+    # Paris is explicit — should not be replaced with Tokyo
+    assert "Paris" in result["cleaned_input"]
+    assert "Tokyo" not in result["cleaned_input"]
+    log.info("PASS | test_no_resolve_when_city_already_explicit")
+
+
+def test_no_resolve_when_no_history():
+    """When history is empty, pronouns cannot be resolved — query passes through unchanged."""
+    mw = PreModelMiddleware()
+    result = mw.process("What time is it there?", [])
+    assert "there" in result["cleaned_input"].lower()
+    log.info("PASS | test_no_resolve_when_no_history")
+
+
+def test_detected_city_after_resolution():
+    """After pronoun resolution the metadata detected_city should reflect the substituted city."""
+    mw = PreModelMiddleware()
+    history = [{"role": "user", "content": "I want to visit Tokyo."}]
+    result = mw.process("What time is it there?", history)
+    assert result["metadata"]["detected_city"] == "Tokyo"
+    log.info("PASS | test_detected_city_after_resolution")
+
+
 # ── Dynamic prompt tests ───────────────────────────────────────────────────────
 
 def test_dynamic_prompt_contains_base():

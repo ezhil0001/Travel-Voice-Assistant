@@ -6,13 +6,14 @@ import { map } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
 export interface VoiceQueryResponse {
-  audioBlob:       Blob;
-  transcript:      string;
-  response:        string;
-  intent:          string;
-  intents:         string[];
-  tool_events:     any[];
-  agent_responses: Record<string, string>;
+  audioBlob:        Blob;
+  transcript:       string;
+  response:         string;
+  intent:           string;
+  intents:          string[];
+  tool_events:      any[];
+  agent_responses:  Record<string, string>;
+  summary_response: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -49,13 +50,14 @@ export class VoiceApiService {
       )
       .pipe(
         map(res => ({
-          audioBlob:       this.base64ToBlob(res.audio_base64, 'audio/wav'),
-          transcript:      res.transcript      || '',
-          response:        res.response        || '',
-          intent:          res.intent          || 'general',
-          intents:         res.intents         || [res.intent || 'general'],
-          tool_events:     res.tool_events     || [],
-          agent_responses: res.agent_responses || {},
+          audioBlob:        this.base64ToBlob(res.audio_base64, 'audio/wav'),
+          transcript:       res.transcript       || '',
+          response:         res.response         || '',
+          intent:           res.intent           || 'general',
+          intents:          res.intents          || [res.intent || 'general'],
+          tool_events:      res.tool_events      || [],
+          agent_responses:  res.agent_responses  || {},
+          summary_response: res.summary_response || res.response || '',
         }))
       );
   }

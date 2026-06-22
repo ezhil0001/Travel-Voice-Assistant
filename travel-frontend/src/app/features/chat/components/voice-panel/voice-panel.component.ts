@@ -431,12 +431,13 @@ export class VoicePanelComponent implements OnInit, OnDestroy {
           timestamp: new Date(), durationMs: t.duration_ms, source: t.source,
         }));
         this.chatState.updateMessage(assistantMsgId, {
-          text:           res.response,
-          intent:         res.intent as any,
-          intents:        (res.intents || [res.intent]).filter(Boolean) as any,
-          agentResponses: res.agent_responses || {},
+          text:            res.response,
+          intent:          res.intent as any,
+          intents:         (res.intents || [res.intent]).filter(Boolean) as any,
+          agentResponses:  res.agent_responses || {},
+          summaryResponse: res.summary_response || res.response,
           toolEvents,
-          isLoading:      false,
+          isLoading:       false,
         });
         toolEvents.forEach(e => this.chatState.addToolEvent(e));
         this.playAudio(res.audioBlob);

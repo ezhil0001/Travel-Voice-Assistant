@@ -50,7 +50,7 @@ def test_supervisor_detects_weather_attractions_currency():
             "how will cost about 5 days expense. Then give."
         ),
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
     result = sup.route(state)
     intents = result["detected_intents"]
@@ -69,7 +69,7 @@ def test_supervisor_single_intent_still_works():
         "conversation_history": [],
         "cleaned_input": "What is the weather in London?",
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
     result = sup.route(state)
     assert result["detected_intents"] == ["weather"]
@@ -93,7 +93,7 @@ def test_supervisor_all_five_intents_detected():
             "current local time, and USD to JPY rate?"
         ),
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
     result = sup.route(state)
     intents = result["detected_intents"]
@@ -109,7 +109,7 @@ def test_supervisor_deduplicates_intents():
         "user_input": "Weather and currency?", "conversation_history": [],
         "cleaned_input": "Weather and currency?",
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
     result = sup.route(state)
     assert result["detected_intents"].count("weather") == 1
@@ -127,7 +127,7 @@ def test_run_agents_node_calls_all_detected_agents():
         "user_input": "Weather and currency", "conversation_history": [],
         "cleaned_input": "Weather in Chennai and currency for Thailand",
         "detected_intents": ["weather", "currency"],
-        "agent_responses": {}, "tool_events": [], "final_response": "", "error": "",
+        "agent_responses": {}, "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
 
     batch_response = json.dumps({
@@ -158,7 +158,7 @@ def test_run_agents_node_records_tool_events():
         "user_input": "", "conversation_history": [],
         "cleaned_input": "Weather in Tokyo?",
         "detected_intents": ["weather"],
-        "agent_responses": {}, "tool_events": [], "final_response": "", "error": "",
+        "agent_responses": {}, "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
 
     batch_response = json.dumps({"weather": "What is the current weather in Tokyo?"})
@@ -184,7 +184,7 @@ def test_run_agents_node_handles_agent_failure_gracefully():
         "user_input": "", "conversation_history": [],
         "cleaned_input": "weather and currency",
         "detected_intents": ["weather", "currency"],
-        "agent_responses": {}, "tool_events": [], "final_response": "", "error": "",
+        "agent_responses": {}, "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
 
     batch_response = json.dumps({
@@ -221,7 +221,7 @@ def test_merge_responses_node_calls_llm_for_multiple_intents():
             "weather":  "Chennai: 34°C humid",
             "currency": "1 INR = 0.43 THB",
         },
-        "tool_events": [], "final_response": "", "error": "",
+        "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
 
     with patch("graph.travel_graph.ModelLayer") as MockModel:

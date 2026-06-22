@@ -113,12 +113,13 @@ export class ChatWindowComponent implements AfterViewChecked, OnInit, OnDestroy 
           source:       t.source,
         }));
         this.chatState.updateMessage(loadingId, {
-          text:           res.response,
-          intent:         res.intent as any,
-          intents:        (res.intents || [res.intent]).filter(Boolean) as any,
-          agentResponses: res.agent_responses || {},
+          text:            res.response,
+          intent:          res.intent as any,
+          intents:         (res.intents || [res.intent]).filter(Boolean) as any,
+          agentResponses:  res.agent_responses || {},
+          summaryResponse: res.summary_response || res.response,
           toolEvents,
-          isLoading:      false,
+          isLoading:       false,
         });
         toolEvents.forEach(e => this.chatState.addToolEvent(e));
         this.isSubmitting = false;

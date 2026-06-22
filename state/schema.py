@@ -24,4 +24,5 @@ class TravelState(TypedDict):
     agent_responses:      dict        # {intent: response_str} from each agent
     tool_events:          list        # [{tool_name, label, status, detail}] for frontend
     final_response:       str         # TTS-ready merged response after PostModelMiddleware
+    summary_response:     str         # Short conversational summary for the Summary View
     error:                str         # Non-empty string if any node encountered a failure

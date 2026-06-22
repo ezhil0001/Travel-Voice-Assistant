@@ -49,7 +49,7 @@ def _make_state(cleaned_input: str) -> TravelState:
         "user_input": cleaned_input, "conversation_history": [],
         "cleaned_input": cleaned_input,
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
 
 
@@ -161,7 +161,7 @@ def test_pre_middleware_node_cleans_input():
         "user_input": "  what is the weather in   Tokyo  ",
         "conversation_history": [], "cleaned_input": "",
         "detected_intents": [], "agent_responses": {}, "tool_events": [],
-        "final_response": "", "error": "",
+        "final_response": "", "summary_response": "", "error": "",
     }
     result = pre_middleware_node(state)
     assert result["cleaned_input"] == "what is the weather in Tokyo"
@@ -191,7 +191,7 @@ def test_merge_responses_node_single_intent_returns_directly():
         "cleaned_input": "Weather in Paris?",
         "detected_intents": ["weather"],
         "agent_responses": {"weather": "Paris is 22°C and sunny today."},
-        "tool_events": [], "final_response": "", "error": "",
+        "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
     result = merge_responses_node(state)
     assert result["final_response"] == "Paris is 22°C and sunny today."
@@ -204,11 +204,53 @@ def test_merge_responses_node_empty_returns_fallback():
     state: TravelState = {
         "user_input": "", "conversation_history": [], "cleaned_input": "",
         "detected_intents": [], "agent_responses": {},
-        "tool_events": [], "final_response": "", "error": "",
+        "tool_events": [], "final_response": "", "summary_response": "", "error": "",
     }
     result = merge_responses_node(state)
     assert result["final_response"]
     log.info("PASS | test_merge_responses_node_empty_returns_fallback")
+
+
+def test_summarize_response_node_uses_agent_responses():
+    """summarize_response_node must call the LLM with optimised content and write summary_response."""
+    from graph.travel_graph import summarize_response_node
+    from unittest.mock import patch
+
+    state: TravelState = {
+        "user_input": "Weather in Tokyo?", "conversation_history": [],
+        "cleaned_input": "Weather in Tokyo?",
+        "detected_intents": ["weather"],
+        "agent_responses": {"weather": "**Tokyo Weather**\n| Temp | 28°C |\n| Feels | 31°C |"},
+        "tool_events": [], "final_response": "Tokyo is 28°C and humid.", "summary_response": "", "error": "",
+    }
+
+    with patch("graph.travel_graph.ModelLayer") as MockModel:
+        MockModel.return_value.invoke.return_value = "Tokyo is currently 28°C and feels like 31°C. It is quite humid."
+        result = summarize_response_node(state)
+
+    assert result["summary_response"] == "Tokyo is currently 28°C and feels like 31°C. It is quite humid."
+    log.info("PASS | test_summarize_response_node_uses_agent_responses")
+
+
+def test_summarize_response_node_fallback_on_llm_failure():
+    """summarize_response_node must fall back to final_response when LLM throws."""
+    from graph.travel_graph import summarize_response_node
+    from unittest.mock import patch
+
+    state: TravelState = {
+        "user_input": "Weather?", "conversation_history": [],
+        "cleaned_input": "Weather?",
+        "detected_intents": ["weather"],
+        "agent_responses": {"weather": "Some weather content"},
+        "tool_events": [], "final_response": "Fallback text.", "summary_response": "", "error": "",
+    }
+
+    with patch("graph.travel_graph.ModelLayer") as MockModel:
+        MockModel.return_value.invoke.side_effect = RuntimeError("LLM timeout")
+        result = summarize_response_node(state)
+
+    assert result["summary_response"] == "Fallback text."
+    log.info("PASS | test_summarize_response_node_fallback_on_llm_failure")
 
 
 import json

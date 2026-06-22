@@ -23,6 +23,17 @@ with open(_CITIES_PATH, encoding="utf-8") as _f:
 # match before shorter substrings ("york") — no re-sorting on every call.
 _KNOWN_CITIES_SORTED: list[str] = sorted(_raw_cities, key=len, reverse=True)
 
+# Location pronouns that refer to a previously-mentioned destination.
+# When any of these appear in a query that has no explicit city, they are
+# replaced with the last city found in conversation history.
+# Examples: "What time is it there?" → "What time is it in Tokyo?"
+#           "Is that city expensive?" → "Is Tokyo expensive?"
+_LOCATION_PRONOUN_RE = re.compile(
+    r'\b(there|that city|that place|that destination|the city|'
+    r'the destination|the place|that country|the country|the location)\b',
+    re.IGNORECASE,
+)
+
 
 class PreModelMiddleware(AgentMiddleware):
     """Sanitises raw STT output and enriches state with conversation context
@@ -47,6 +58,8 @@ class PreModelMiddleware(AgentMiddleware):
         history = state.get("conversation_history", [])
 
         cleaned = self._clean(raw)
+        # Resolve pronouns ("there", "that city") using history BEFORE city detection
+        cleaned = self._resolve_location_references(cleaned, history)
         city = self._detect_city(cleaned)
         context = self._last_n_turns(history)
 
@@ -102,6 +115,55 @@ class PreModelMiddleware(AgentMiddleware):
         for city in _KNOWN_CITIES_SORTED:
             if city in lower:
                 return city.title()
+        return None
+
+    def _resolve_location_references(self, text: str, history: list) -> str:
+        """Replace location pronouns with the last known city from history.
+
+        When a user says "What time is it there?" after discussing Tokyo, this
+        substitutes "there" with "Tokyo" so every downstream component (supervisor,
+        agents, validators) sees an unambiguous city name rather than a pronoun.
+
+        Only triggers when:
+          - The query contains a location pronoun (there, that city, etc.)
+          - The query itself has NO city name already (avoids double substitution)
+          - A city can be found in recent conversation history
+
+        Examples:
+          "What time is it there?"       → "What time is it in Tokyo?"
+          "Is that city expensive?"      → "Is Tokyo expensive?"
+          "How's the weather in Paris?"  → unchanged (city already explicit)
+        """
+        if not _LOCATION_PRONOUN_RE.search(text):
+            return text
+        # If the query already has an explicit city, no substitution needed
+        if self._detect_city(text):
+            return text
+        last_city = self._last_city_from_history(history)
+        if not last_city:
+            return text
+
+        def _replacer(m: re.Match) -> str:
+            # Keep grammatical context: "there" → "in <City>", noun phrases → "<City>"
+            token = m.group(1).lower()
+            if token == "there":
+                return f"in {last_city}"
+            return last_city
+
+        resolved = _LOCATION_PRONOUN_RE.sub(_replacer, text)
+        return resolved
+
+    def _last_city_from_history(self, history: list) -> str | None:
+        """Scan conversation history (most-recent-first) for the last city mentioned.
+
+        Searches both user and assistant turns so it works regardless of which
+        side said the city name most recently.
+        """
+        for turn in reversed(history):
+            content = turn.get("content", "")
+            city = self._detect_city(content)
+            if city:
+                return city
         return None
 
     def _last_n_turns(self, history: list) -> list:
