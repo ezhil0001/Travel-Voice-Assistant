@@ -58,6 +58,16 @@ _INTENT_LABELS: dict[str, str] = {
     "general":     "General travel advice",
 }
 
+# Human-readable data source names surfaced in the Tool Activity panel
+_INTENT_SOURCES: dict[str, str] = {
+    "weather":     "OpenWeatherMap API",
+    "flight":      "FlightAPI.io",
+    "attractions": "GeoNames API",
+    "currency":    "ExchangeRate-API",
+    "timezone":    "TimeAPI.io",
+    "general":     "LLM Knowledge",
+}
+
 # ── Singleton instances — built once, reused across all graph invocations ──────
 
 _supervisor        = SupervisorAgent()
@@ -124,16 +134,30 @@ def run_agents_node(state: TravelState) -> TravelState:
 
         if intent == "general":
             try:
+                t_gen = time.monotonic()
                 response = model.invoke(focused)
+                duration_ms = int((time.monotonic() - t_gen) * 1000)
                 responses["general"] = response
-                tool_events.append({"tool_name": "general_llm", "label": label,
-                                     "status": "success", "detail": focused[:80]})
+                tool_events.append({
+                    "tool_name":   "general_llm",
+                    "label":       label,
+                    "status":      "success",
+                    "detail":      focused[:80],
+                    "duration_ms": duration_ms,
+                    "source":      "LLM Knowledge",
+                })
                 logger.info("run_agents_node | general | len=%d", len(response))
             except Exception as exc:
                 logger.error("run_agents_node | general | failed: %s", exc)
                 responses["general"] = "I couldn't process that. Please try again."
-                tool_events.append({"tool_name": "general_llm", "label": label,
-                                     "status": "error", "detail": str(exc)})
+                tool_events.append({
+                    "tool_name":   "general_llm",
+                    "label":       label,
+                    "status":      "error",
+                    "detail":      str(exc),
+                    "duration_ms": 0,
+                    "source":      "LLM Knowledge",
+                })
             continue
 
         agent = _AGENT_REGISTRY.get(intent)
@@ -142,16 +166,30 @@ def run_agents_node(state: TravelState) -> TravelState:
             continue
 
         try:
+            t_agent = time.monotonic()
             response = agent.run(focused)
+            duration_ms = int((time.monotonic() - t_agent) * 1000)
             responses[intent] = response
-            tool_events.append({"tool_name": f"get_{intent}", "label": label,
-                                 "status": "success", "detail": focused[:80]})
+            tool_events.append({
+                "tool_name":   f"get_{intent}",
+                "label":       label,
+                "status":      "success",
+                "detail":      focused[:80],
+                "duration_ms": duration_ms,
+                "source":      _INTENT_SOURCES.get(intent, "External API"),
+            })
             logger.info("run_agents_node | intent=%s | len=%d", intent, len(response))
         except Exception as exc:
             logger.error("run_agents_node | intent=%s | failed: %s", intent, exc)
             responses[intent] = f"Could not fetch {intent} information right now."
-            tool_events.append({"tool_name": f"get_{intent}", "label": label,
-                                 "status": "error", "detail": str(exc)})
+            tool_events.append({
+                "tool_name":   f"get_{intent}",
+                "label":       label,
+                "status":      "error",
+                "detail":      str(exc),
+                "duration_ms": 0,
+                "source":      _INTENT_SOURCES.get(intent, "External API"),
+            })
 
     return {**state, "agent_responses": responses, "tool_events": tool_events}
 
@@ -436,15 +474,17 @@ def run_graph_full(user_input: str, history: list | None = None) -> dict:
     result = _travel_graph.invoke(initial_state)
     elapsed = time.monotonic() - t0
 
-    intents      = result.get("detected_intents", ["general"])
-    final        = result.get("final_response", "Sorry, I couldn't process your request right now.")
-    tool_events  = result.get("tool_events", [])
+    intents         = result.get("detected_intents", ["general"])
+    final           = result.get("final_response", "Sorry, I couldn't process your request right now.")
+    tool_events     = result.get("tool_events", [])
+    agent_responses = result.get("agent_responses", {})
 
     logger.info("run_graph_full | intents=%s | len=%d | elapsed=%.2fs", intents, len(final), elapsed)
 
     return {
-        "response":    final,
-        "intent":      intents[0] if intents else "general",
-        "intents":     intents,
-        "tool_events": tool_events,
+        "response":        final,
+        "intent":          intents[0] if intents else "general",
+        "intents":         intents,
+        "tool_events":     tool_events,
+        "agent_responses": agent_responses,
     }

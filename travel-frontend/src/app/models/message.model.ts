@@ -1,6 +1,4 @@
 // Domain types shared across the chat, voice, and API layers.
-// Keeping them in one file means any component can import exactly
-// what it needs without pulling in service logic.
 
 export type MessageRole = 'user' | 'assistant';
 
@@ -13,25 +11,28 @@ export type VoiceIntent =
   | 'general';
 
 // Represents a single tool call the AI made while processing a query.
-// The UI renders these as collapsible panels under each assistant message.
 export interface ToolEvent {
   id: string;
-  toolName: string;       // e.g. "get_weather"
-  label: string;          // human-readable description, e.g. "Fetching weather data"
+  toolName: string;        // e.g. "get_weather"
+  label: string;           // e.g. "Fetching weather data"
   status: 'running' | 'success' | 'error';
-  detail?: string;        // tool input summary, e.g. "city=Tokyo, units=metric"
-  errorMessage?: string;  // only present when status === 'error'
+  detail?: string;         // focused query sent to the tool
+  errorMessage?: string;
   timestamp: Date;
+  durationMs?: number;     // execution time in milliseconds
+  source?: string;         // e.g. "OpenWeatherMap API"
 }
 
-// A single turn in the conversation — either a user query or an assistant reply.
+// A single turn in the conversation.
 export interface Message {
   id: string;
   role: MessageRole;
   text: string;
   timestamp: Date;
-  intent?: VoiceIntent;      // set on assistant messages so the badge renders
-  toolEvents?: ToolEvent[];  // populated once the backend responds
-  isLoading?: boolean;       // true while waiting for the backend response
-  isLiveTranscript?: boolean; // true while STT is streaming — shows live cursor in bubble
+  intent?: VoiceIntent;
+  intents?: VoiceIntent[];           // all detected intents for multi-intent queries
+  agentResponses?: Record<string, string>; // per-intent concise responses from the backend
+  toolEvents?: ToolEvent[];
+  isLoading?: boolean;
+  isLiveTranscript?: boolean;
 }

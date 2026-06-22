@@ -8,37 +8,83 @@
 
   <div class="content-col">
 
-    <!-- Tool activity panel (only for assistant) -->
+    <!-- Tool activity pipeline (only for assistant, shown above bubble) -->
     <app-tool-activity
       *ngIf="message.role==='assistant' && message.toolEvents?.length"
       [events]="message.toolEvents!"
     ></app-tool-activity>
 
-    <!-- Message bubble -->
-    <div class="bubble"
-         [class.loading]="message.isLoading"
-         [class.live-transcript]="message.isLiveTranscript">
-
-      <!-- Loading dots -->
-      <div class="dots" *ngIf="message.isLoading">
-        <span></span><span></span><span></span>
-      </div>
-
-      <!-- Message text + live cursor -->
-      <p *ngIf="!message.isLoading">
-        {{ message.text }}<span class="live-cursor" *ngIf="message.isLiveTranscript">|</span>
-      </p>
-
+    <!-- ── LOADING state ── -->
+    <div class="bubble loading" *ngIf="message.isLoading">
+      <div class="dots"><span></span><span></span><span></span></div>
     </div>
 
-    <!-- Footer: intent badge + timestamp -->
+    <!-- ── LIVE TRANSCRIPT ── -->
+    <div class="bubble live-transcript" *ngIf="!message.isLoading && message.isLiveTranscript">
+      <p>{{ message.text }}<span class="live-cursor">|</span></p>
+    </div>
+
+    <!-- ── USER bubble ── -->
+    <div class="bubble user-bubble"
+         *ngIf="!message.isLoading && !message.isLiveTranscript && message.role==='user'">
+      <p>{{ message.text }}</p>
+    </div>
+
+    <!-- ── ASSISTANT: view-mode toggle + content ── -->
+    <ng-container *ngIf="!message.isLoading && !message.isLiveTranscript && message.role==='assistant' && message.text">
+
+      <!-- Tab toggle (only when there is meaningful content — not loading) -->
+      <div class="view-tabs" *ngIf="isMultiIntent || (message.intents && message.intents.length > 0) || message.intent">
+        <button class="view-tab" [class.active]="viewMode === 'optimised'" (click)="setViewMode('optimised')">
+          <span class="tab-icon">⚡</span> Optimised
+        </button>
+        <button class="view-tab" [class.active]="viewMode === 'summary'" (click)="setViewMode('summary')">
+          <span class="tab-icon">📝</span> Summary
+        </button>
+      </div>
+
+      <!-- ── OPTIMISED: multi-intent cards with structured markdown ── -->
+      <ng-container *ngIf="viewMode === 'optimised' && isMultiIntent">
+        <div class="response-cards">
+          <div class="response-card" *ngFor="let card of cards">
+            <div class="card-header-row">
+              <span class="card-icon">{{ card.icon }}</span>
+              <span class="card-title">{{ card.title }}</span>
+              <span class="intent-badge {{ card.intent }}">{{ card.intent }}</span>
+            </div>
+            <div class="card-body markdown-body" [innerHTML]="card.body | markdown"></div>
+          </div>
+        </div>
+      </ng-container>
+
+      <!-- ── OPTIMISED: single-intent with markdown ── -->
+      <div class="bubble assistant-bubble" *ngIf="viewMode === 'optimised' && !isMultiIntent">
+        <div class="markdown-body" [innerHTML]="message.text | markdown"></div>
+      </div>
+
+      <!-- ── SUMMARY: always plain merged text in one bubble ── -->
+      <div class="bubble assistant-bubble summary-bubble" *ngIf="viewMode === 'summary'">
+        <p>{{ message.text }}</p>
+      </div>
+
+    </ng-container>
+
+    <!-- Footer: intent badges + timestamp -->
     <div class="bubble-footer" *ngIf="!message.isLoading">
-      <span class="badge {{ message.intent }}" *ngIf="message.intent && message.role==='assistant'">
+
+      <!-- multi-intent: show all badges -->
+      <ng-container *ngIf="message.intents && message.intents.length > 1">
+        <span class="badge {{ intent }}" *ngFor="let intent of message.intents">{{ intent }}</span>
+      </ng-container>
+
+      <!-- single intent badge -->
+      <span class="badge {{ message.intent }}"
+            *ngIf="(!message.intents || message.intents.length <= 1) && message.intent && message.role==='assistant'">
         {{ message.intent }}
       </span>
+
       <span class="timestamp">{{ message.timestamp | date:'HH:mm' }}</span>
     </div>
 
   </div>
 </div>
-

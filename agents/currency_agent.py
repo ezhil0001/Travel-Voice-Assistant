@@ -23,6 +23,20 @@ _SYSTEM_PROMPT = (
     "No markdown. Two sentences max."
 )
 
+_DISPLAY_PROMPT = (
+    "You are a currency specialist. Format the tool result as a clean visual summary using markdown.\n\n"
+    "Use this exact layout:\n"
+    "**Currency Conversion — [from_currency] → [to_currency]**\n\n"
+    "| | |\n"
+    "|---|---|\n"
+    "| 💵 Amount | X [from_c] |\n"
+    "| 💱 Converted | X [to_c] |\n"
+    "| 📈 Exchange Rate | 1 [from_c] = X [to_c] |\n\n"
+    "**Purchasing power:** one practical sentence about what this amount buys locally "
+    "(e.g. meals, transport, accommodation).\n\n"
+    "Use only the data from the tool result. Do not fabricate rates."
+)
+
 
 class CurrencyAgent(BaseAgent):
     """Converts currencies using LangChain tool binding + Runnable chain.
@@ -56,8 +70,8 @@ class CurrencyAgent(BaseAgent):
                 if "error" in tool_result:
                     return f"Sorry, I couldn't fetch the exchange rate. {tool_result['error']}"
                 format_messages = [
-                    SystemMessage(content=_SYSTEM_PROMPT),
-                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly currency summary."),
+                    SystemMessage(content=_DISPLAY_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Format this as a structured currency card."),
                 ]
                 try:
                     formatted = self._format_chain.invoke(format_messages).content
@@ -72,7 +86,13 @@ class CurrencyAgent(BaseAgent):
                 from_c  = args.get("from_c", "")
                 to_c    = args.get("to_c", "")
                 amount  = args.get("amount", "")
-                return f"{amount} {from_c} equals {result} {to_c} (rate: 1 {from_c} = {rate} {to_c})."
+                return (
+                    f"**Currency Conversion — {from_c} → {to_c}**\n\n"
+                    f"| | |\n|---|---|\n"
+                    f"| 💵 Amount | {amount} {from_c} |\n"
+                    f"| 💱 Converted | {result} {to_c} |\n"
+                    f"| 📈 Exchange Rate | 1 {from_c} = {rate} {to_c} |"
+                )
             return response.content
         except Exception as exc:
             logger.error("CurrencyAgent.run | failed: %s", exc)

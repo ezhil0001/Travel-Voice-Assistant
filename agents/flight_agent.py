@@ -19,6 +19,19 @@ _SYSTEM_PROMPT = (
     "Return the cheapest option with price, stops, and airline. One sentence. No markdown."
 )
 
+_DISPLAY_PROMPT = (
+    "You are a flight search specialist. Format the tool result as a clean visual summary using markdown.\n\n"
+    "Use this exact layout:\n"
+    "**Available Flights — [origin] → [destination]**\n\n"
+    "| Airline | Departure | Arrival | Stops | Price |\n"
+    "|---------|-----------|---------|-------|-------|\n"
+    "| XX | HH:MM | HH:MM | N | $XXX |\n\n"
+    "(Include up to 3 rows. Format times as HH:MM from the ISO timestamps. "
+    "Highlight the cheapest row with ✅ in front of the airline name.)\n\n"
+    "**Tip:** Book early for best fares. Prices shown in USD.\n\n"
+    "Use only the data from the tool result. Do not fabricate flight details."
+)
+
 _GENERAL_FLIGHT_PROMPT = (
     "You are a knowledgeable travel assistant. The live flight search API is currently unavailable. "
     "Based on your training knowledge, give a helpful answer about the route asked. "
@@ -80,8 +93,8 @@ class FlightAgent(BaseAgent):
                     return self._llm_fallback(query)
 
                 format_messages = [
-                    SystemMessage(content=_SYSTEM_PROMPT),
-                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly flight summary."),
+                    SystemMessage(content=_DISPLAY_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Format this as a flight comparison table."),
                 ]
                 final = self._format_chain.invoke(format_messages)
                 return final.content

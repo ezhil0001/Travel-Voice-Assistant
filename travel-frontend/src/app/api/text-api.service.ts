@@ -20,7 +20,9 @@ export interface TextToolEvent {
 export interface TextQueryResponse {
   response: string;
   intent: string;
+  intents: string[];
   tool_events: TextToolEvent[];
+  agent_responses: Record<string, string>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -46,9 +48,11 @@ export class TextApiService {
       })
       .pipe(
         map(res => ({
-          response:    res.response    || '',
-          intent:      res.intent      || 'general',
-          tool_events: res.tool_events || [],
+          response:        res.response        || '',
+          intent:          res.intent          || 'general',
+          intents:         res.intents         || [res.intent || 'general'],
+          tool_events:     res.tool_events     || [],
+          agent_responses: res.agent_responses || {},
         }))
       );
   }

@@ -16,6 +16,20 @@ _SYSTEM_PROMPT = (
     "Keep it under 2 sentences. No markdown."
 )
 
+_DISPLAY_PROMPT = (
+    "You are a weather specialist. Format the tool result as a clean visual summary using markdown.\n\n"
+    "Use this exact layout:\n"
+    "**[City] — Current Conditions**\n\n"
+    "| | |\n"
+    "|---|---|\n"
+    "| 🌡️ Temperature | X°C |\n"
+    "| 🤔 Feels Like | X°C |\n"
+    "| ☁️ Conditions | description |\n"
+    "| 💧 Humidity | X% |\n\n"
+    "**What to pack:** one practical sentence about clothing and essentials.\n\n"
+    "Use only the data from the tool result. No extra text outside this layout."
+)
+
 
 class WeatherAgent(BaseAgent):
     """Resolves weather queries using LangChain tool binding + Runnable chain.
@@ -54,12 +68,12 @@ class WeatherAgent(BaseAgent):
                 if "error" in tool_result:
                     return f"Sorry, I couldn't fetch the weather. {tool_result['error']}"
 
-                # Step 3 — Ask the model to format the raw data into a voice response.
+                # Step 3 — Ask the model to format the raw data into a rich display response.
                 # Send a clean 2-message request (no AIMessage with tool_calls) so
                 # Groq doesn't reject the conversation with HTTP 400.
                 format_messages = [
-                    SystemMessage(content=_SYSTEM_PROMPT),
-                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly weather summary."),
+                    SystemMessage(content=_DISPLAY_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Format this as a structured weather card."),
                 ]
                 try:
                     final = self._format_chain.invoke(format_messages)
@@ -69,13 +83,19 @@ class WeatherAgent(BaseAgent):
                     logger.warning("WeatherAgent.run | format_chain failed: %s — using direct format", fmt_exc)
 
                 # Direct fallback when format chain fails
-                city = tool_result.get("city", "your destination")
-                temp = tool_result.get("temperature", "")
-                desc = tool_result.get("description", "")
-                feels = tool_result.get("feels_like", "")
+                city   = tool_result.get("city", "your destination")
+                temp   = tool_result.get("temperature", "N/A")
+                desc   = tool_result.get("description", "N/A")
+                feels  = tool_result.get("feels_like", "N/A")
+                humid  = tool_result.get("humidity", "N/A")
                 return (
-                    f"In {city} it is currently {temp}°C (feels like {feels}°C) "
-                    f"with {desc}. Pack light and stay hydrated."
+                    f"**{city} — Current Conditions**\n\n"
+                    f"| | |\n|---|---|\n"
+                    f"| 🌡️ Temperature | {temp}°C |\n"
+                    f"| 🤔 Feels Like | {feels}°C |\n"
+                    f"| ☁️ Conditions | {desc} |\n"
+                    f"| 💧 Humidity | {humid}% |\n\n"
+                    f"**What to pack:** Light, breathable clothing recommended."
                 )
 
             # LLM answered directly without a tool call.

@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnChanges } from '@angular/core';
 import { ToolEvent } from '../../../models/message.model';
 
 @Component({
@@ -7,33 +7,57 @@ import { ToolEvent } from '../../../models/message.model';
   templateUrl: './tool-activity.component.html',
   styleUrls: ['./tool-activity.component.scss'],
 })
-export class ToolActivityComponent {
+export class ToolActivityComponent implements OnChanges {
   @Input() events: ToolEvent[] = [];
-  expandedIds = new Set<string>();
 
-  toggle(id: string): void {
-    if (this.expandedIds.has(id)) this.expandedIds.delete(id);
-    else this.expandedIds.add(id);
+  panelOpen  = false;
+  expandedId: string | null = null;
+
+  get hasError(): boolean {
+    return this.events.some(e => e.status === 'error');
+  }
+
+  get totalDuration(): number {
+    return this.events.reduce((s, e) => s + (e.durationMs || 0), 0);
+  }
+
+  ngOnChanges(): void {
+    this.expandedId = null;
+  }
+
+  togglePanel(): void {
+    this.panelOpen = !this.panelOpen;
+  }
+
+  toggleEvent(id: string): void {
+    this.expandedId = this.expandedId === id ? null : id;
   }
 
   isExpanded(id: string): boolean {
-    return this.expandedIds.has(id);
-  }
-
-  getStatusIcon(status: string): string {
-    if (status === 'success') return '✅';
-    if (status === 'error')   return '❌';
-    return '⏳';
+    return this.expandedId === id;
   }
 
   getToolIcon(toolName: string): string {
     const icons: Record<string, string> = {
-      get_weather:     '🌤',
+      get_weather:     '🌤️',
       get_flights:     '✈️',
-      get_attractions: '🗺',
+      get_attractions: '🗺️',
       get_currency:    '💱',
       get_timezone:    '🕐',
+      general_llm:     '🧠',
     };
     return icons[toolName] || '📡';
+  }
+
+  formatDuration(ms?: number): string {
+    if (!ms) return '—';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  getStatusLabel(status: string): string {
+    if (status === 'success') return 'Success';
+    if (status === 'error')   return 'Failed';
+    return 'Running';
   }
 }

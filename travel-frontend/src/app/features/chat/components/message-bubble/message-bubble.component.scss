@@ -3,7 +3,7 @@
 .message-row {
   display: flex;
   gap: 10px;
-  max-width: 85%;
+  max-width: 88%;
 
   &.user      { align-self: flex-end;   flex-direction: row-reverse; }
   &.assistant { align-self: flex-start; }
@@ -28,32 +28,41 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  width: 100%;
 }
 
+// ── Base bubble ───────────────────────────────────────────────────────────────
 .bubble {
   padding: 11px 15px;
   border-radius: 18px;
   font-size: 14.5px;
   line-height: 1.6;
   word-break: break-word;
-
-  .user & {
-    background: $blue;
-    color: white;
-    border-bottom-right-radius: 4px;
-  }
-
-  .assistant & {
-    background: $bg-card;
-    color: $text-main;
-    border: 1px solid $border;
-    border-bottom-left-radius: 4px;
-  }
-
-  &.loading { min-width: 60px; }
 }
 
-// Loading dots animation
+.user-bubble {
+  @extend .bubble;
+  background: $blue;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.assistant-bubble {
+  @extend .bubble;
+  background: $bg-card;
+  color: $text-main;
+  border: 1px solid $border;
+  border-bottom-left-radius: 4px;
+}
+
+.loading {
+  background: $bg-card;
+  border: 1px solid $border;
+  border-bottom-left-radius: 4px;
+  min-width: 60px;
+}
+
+// ── Loading dots ──────────────────────────────────────────────────────────────
 .dots {
   display: flex;
   gap: 5px;
@@ -76,34 +85,132 @@
   40%           { opacity: 1; }
 }
 
-// Live transcript cursor blink
+// ── Live transcript ───────────────────────────────────────────────────────────
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0; }
 }
 
+.live-transcript {
+  background: $bg-card;
+  border: 1px solid rgba(255, 80, 80, 0.4);
+  border-radius: 18px;
+  padding: 11px 15px;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
 .live-cursor {
   display: inline-block;
   margin-left: 2px;
-  font-weight: 300;
   animation: cursor-blink 0.9s ease-in-out infinite;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255,255,255,0.7);
 }
 
-// Subtle pulsing outline on the live bubble so it's clearly "in progress"
-.bubble.live-transcript {
-  outline: 1px solid rgba(255, 80, 80, 0.45);
-  outline-offset: 1px;
+// ── View-mode tabs ────────────────────────────────────────────────────────────
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
 }
 
-.bubble-footer {
+.view-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: $font;
+  color: $text-muted;
+  background: #1a1d24;
+  border: 1px solid $border;
+  border-radius: $radius-pill;
+  cursor: pointer;
+  transition: all 0.18s;
+  line-height: 1;
+
+  .tab-icon { font-size: 11px; }
+
+  &:hover {
+    background: #252830;
+    color: $text-main;
+  }
+
+  &.active {
+    background: #252830;
+    border-color: #3a3f55;
+    color: $text-main;
+    font-weight: 600;
+  }
+}
+
+// ── Multi-intent response cards ───────────────────────────────────────────────
+.response-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.response-card {
+  background: $bg-card;
+  border: 1px solid $border;
+  border-radius: 14px;
+  padding: 12px 15px;
+  transition: border-color 0.2s;
+
+  &:hover { border-color: #3a3f55; }
+}
+
+.card-header-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  margin-bottom: 8px;
+}
 
-  .timestamp { font-size: 11px; color: $text-muted; }
+.card-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-main;
+  flex: 1;
+}
+
+.intent-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+
+  &.weather     { background: #1565c020; color: #42a5f5; border: 1px solid #1565c040; }
+  &.flight      { background: #6a1b9a20; color: #ce93d8; border: 1px solid #6a1b9a40; }
+  &.attractions { background: #00695c20; color: #4db6ac; border: 1px solid #00695c40; }
+  &.currency    { background: #2e7d3220; color: #66bb6a; border: 1px solid #2e7d3240; }
+  &.timezone    { background: #e6510020; color: #ffa726; border: 1px solid #e6510040; }
+  &.general     { background: #37474f20; color: #90a4ae; border: 1px solid #37474f40; }
+}
+
+.card-body {
+  margin: 0;
+  // Actual text styling handled by .markdown-body in global styles.scss
+  // so markdown tables, lists and headings all render correctly inside cards.
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+.bubble-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  flex-wrap: wrap;
+
+  .timestamp { font-size: 11px; color: $text-muted; margin-left: auto; }
 
   .user & { flex-direction: row-reverse; }
 }
-

@@ -17,6 +17,26 @@ _SYSTEM_PROMPT = (
     "and [place3] ([word]).' No markdown. One sentence only."
 )
 
+_DISPLAY_PROMPT = (
+    "You are a tourism expert. The user asked about places to visit.\n\n"
+    "Look at the tool result and the original query to determine how many days the trip is.\n\n"
+    "IF the query mentions a number of days (e.g. '5-day trip', '3 days'), create a day-by-day itinerary:\n"
+    "Use this layout:\n"
+    "**[City] — [N]-Day Itinerary**\n\n"
+    "| Day | Morning | Afternoon | Evening |\n"
+    "|-----|---------|-----------|--------|\n"
+    "| Day 1 | Activity + location | Activity + location | Dinner / show |\n"
+    "(Fill all days. Use the attractions from the tool result for Days 1-2; "
+    "use your knowledge for the remaining days. Add 1 emoji per activity.)\n\n"
+    "IF the query does NOT mention days, use this layout instead:\n"
+    "**Top Places to Visit in [City]**\n\n"
+    "- 🏛️ **Place 1** — one sentence about what makes it special\n"
+    "- 🌿 **Place 2** — one sentence about what makes it special\n"
+    "- 🎭 **Place 3** — one sentence about what makes it special\n\n"
+    "**Best time to visit:** one sentence.\n\n"
+    "Use the attractions from the tool result. Do not repeat the same place twice."
+)
+
 
 class AttractionsAgent(BaseAgent):
     """Returns top tourist attractions using LangChain tool binding + Runnable chain.
@@ -42,8 +62,8 @@ class AttractionsAgent(BaseAgent):
                 if isinstance(tool_result, list) and tool_result and "error" in tool_result[0]:
                     return "Sorry, I couldn't find attractions right now."
                 format_messages = [
-                    SystemMessage(content=_SYSTEM_PROMPT),
-                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly attractions summary."),
+                    SystemMessage(content=_DISPLAY_PROMPT),
+                    HumanMessage(content=f"Original query: {query}\n\nTool result: {tool_result}. Format this as a structured attractions or itinerary card."),
                 ]
                 try:
                     formatted = self._format_chain.invoke(format_messages).content
@@ -57,7 +77,8 @@ class AttractionsAgent(BaseAgent):
                     names = [p.get("name", "Unknown") for p in tool_result if isinstance(p, dict) and "name" in p]
                     if names:
                         city_arg = response.tool_calls[0]["args"].get("city", "the destination")
-                        return f"In {city_arg} you should visit {', '.join(names[:3])}."
+                        bullet_list = "\n".join(f"- 📍 **{n}**" for n in names[:3])
+                        return f"**Top Places to Visit in {city_arg}**\n\n{bullet_list}"
                     return "I found some attractions but couldn't format them. Please ask again."
                 return formatted
             # No tool call — the LLM answered from its own knowledge (acceptable for well-known cities)

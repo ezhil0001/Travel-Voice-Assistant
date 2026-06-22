@@ -8,11 +8,11 @@
   </div>
 
   <!-- VAD silence-countdown bar — shown when speech has been heard and user paused -->
-  <div class="countdown-bar" *ngIf="vm.vs?.status === 'silence_countdown'">
-    <!-- bar shrinks left-to-right as the grace window drains -->
+  <!-- <div class="countdown-bar" *ngIf="vm.vs?.status === 'silence_countdown'">
+     bar shrinks left-to-right as the grace window drains 
     <div class="bar-fill" [style.width]="((vm.vs!.silenceCountdown / 3) * 100) + '%'"></div>
     <span>Sending in {{ vm.vs?.silenceCountdown }}s…</span>
-  </div>
+  </div> -->
 
   <!-- Audio wave — red while listening -->
   <app-audio-wave

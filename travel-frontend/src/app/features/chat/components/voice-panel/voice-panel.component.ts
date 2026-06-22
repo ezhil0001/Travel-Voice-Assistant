@@ -427,10 +427,16 @@ export class VoicePanelComponent implements OnInit, OnDestroy {
 
         const toolEvents: ToolEvent[] = (res.tool_events || []).map((t: any) => ({
           id: this.chatState.generateId(), toolName: t.tool_name, label: t.label || t.tool_name,
-          status: t.status, detail: t.detail, errorMessage: t.error, timestamp: new Date(),
+          status: t.status, detail: t.detail, errorMessage: t.error,
+          timestamp: new Date(), durationMs: t.duration_ms, source: t.source,
         }));
         this.chatState.updateMessage(assistantMsgId, {
-          text: res.response, intent: res.intent as any, toolEvents, isLoading: false,
+          text:           res.response,
+          intent:         res.intent as any,
+          intents:        (res.intents || [res.intent]).filter(Boolean) as any,
+          agentResponses: res.agent_responses || {},
+          toolEvents,
+          isLoading:      false,
         });
         toolEvents.forEach(e => this.chatState.addToolEvent(e));
         this.playAudio(res.audioBlob);

@@ -19,6 +19,21 @@ _SYSTEM_PROMPT = (
     "One sentence. No markdown."
 )
 
+_DISPLAY_PROMPT = (
+    "You are a timezone specialist. Format the tool result as a clean visual summary using markdown.\n\n"
+    "Use this exact layout:\n"
+    "**Local Time — [City / Timezone]**\n\n"
+    "| | |\n"
+    "|---|---|\n"
+    "| 🕐 Local Time | HH:MM (AM/PM) |\n"
+    "| 📅 Date | Day, DD Month YYYY |\n"
+    "| 🌍 Timezone | IANA zone name |\n"
+    "| ⏱️ vs. UTC | +/- N hours |\n\n"
+    "**Tip:** one short practical sentence about the time difference "
+    "(e.g. what it means for calling home or planning activities).\n\n"
+    "Use only the data from the tool result. Format the time as 12-hour with AM/PM."
+)
+
 
 class TimezoneAgent(BaseAgent):
     """Reports local time at a destination using LangChain tool binding + Runnable chain.
@@ -58,8 +73,8 @@ class TimezoneAgent(BaseAgent):
                 if "error" in tool_result:
                     return f"Sorry, I couldn't fetch the timezone information. {tool_result['error']}"
                 format_messages = [
-                    SystemMessage(content=_SYSTEM_PROMPT),
-                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly timezone summary."),
+                    SystemMessage(content=_DISPLAY_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Format this as a structured timezone card."),
                 ]
                 return self._format_chain.invoke(format_messages).content
             return response.content
@@ -73,11 +88,19 @@ class TimezoneAgent(BaseAgent):
                 try:
                     tool_result = self._tool.invoke({"timezone": iana_hint})
                     if "error" not in tool_result:
-                        dt = tool_result.get("datetime", "")
+                        dt       = tool_result.get("datetime", "")
                         time_str = dt[11:16] if len(dt) >= 16 else ""
-                        tz = tool_result.get("timezone", iana_hint)
+                        tz       = tool_result.get("timezone", iana_hint)
+                        utc_off  = tool_result.get("utc_offset", "")
+                        city     = tz.split("/")[-1].replace("_", " ")
                         if time_str:
-                            return f"It is currently {time_str} in {tz.split('/')[-1].replace('_', ' ')}."
+                            return (
+                                f"**Local Time — {city}**\n\n"
+                                f"| | |\n|---|---|\n"
+                                f"| 🕐 Local Time | {time_str} |\n"
+                                f"| 🌍 Timezone | {tz} |\n"
+                                f"| ⏱️ vs. UTC | {utc_off} |"
+                            )
                 except Exception as tool_exc:
                     logger.error("TimezoneAgent.run | direct tool call also failed: %s", tool_exc)
             return "Sorry, I couldn't fetch the timezone information right now. Please try again."

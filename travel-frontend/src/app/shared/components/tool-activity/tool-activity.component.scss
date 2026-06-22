@@ -1,67 +1,238 @@
-.tool-activity {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 8px 0;
+@use 'variables' as *;
+
+// ── Toggle bar ────────────────────────────────────────────────────────────────
+.activity-wrapper {
+  margin-bottom: 6px;
 }
 
-.event-header {
+.activity-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 12px;
+  background: #181b22;
+  border: 1px solid #2a2e3d;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: $text-muted;
+  transition: background 0.18s, border-color 0.18s;
+  font-family: $font;
+  text-align: left;
+
+  &:hover, &.open {
+    background: #1e2130;
+    border-color: #3a3f55;
+    color: $text-main;
+  }
+}
+
+.toggle-left {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
-  border-radius: 8px;
-  background: #1c1f26;
-  border: 1px solid #2e3240;
-  cursor: pointer;
-  font-size: 13px;
-  transition: background 0.2s;
-
-  &:hover { background: #252830; }
-
-  .tool-icon   { font-size: 14px; }
-  .tool-label  { flex: 1; color: #c8ccd4; }
-  .status-icon { font-size: 13px; }
-  .chevron     { font-size: 11px; color: #9aa0ac; margin-left: 4px; }
 }
 
-.event-detail {
-  margin: 0 8px;
-  padding: 10px 12px;
-  background: #13151a;
-  border: 1px solid #2e3240;
-  border-top: none;
-  border-radius: 0 0 8px 8px;
+.toggle-icon { font-size: 13px; }
+
+.toggle-label {
+  font-weight: 500;
+  color: $text-main;
+  font-size: 12.5px;
+}
+
+.step-count {
+  font-size: 11px;
+  color: $text-muted;
+  background: #252830;
+  padding: 1px 7px;
+  border-radius: $radius-pill;
+}
+
+.badge-ok {
+  font-size: 11px;
+  color: #66bb6a;
+  background: #1b3a1d;
+  padding: 1px 7px;
+  border-radius: $radius-pill;
+}
+
+.badge-err {
+  font-size: 11px;
+  color: #ffa726;
+  background: #3a2a0a;
+  padding: 1px 7px;
+  border-radius: $radius-pill;
+}
+
+.toggle-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.duration-total {
+  font-size: 11px;
+  color: $text-muted;
+  font-family: $mono;
+}
+
+.chevron {
+  font-size: 16px;
+  color: $text-muted;
+  transition: transform 0.2s;
+  display: inline-block;
+
+  &.rotated { transform: rotate(90deg); }
+}
+
+// ── Expanded panel ─────────────────────────────────────────────────────────────
+.activity-panel {
+  display: none;
+  margin-top: 4px;
+  background: #13151c;
+  border: 1px solid #2a2e3d;
+  border-radius: 10px;
+  overflow: hidden;
+
+  &.visible { display: block; }
+}
+
+// ── Events section ─────────────────────────────────────────────────────────────
+.events-section {
+  padding: 8px 12px 14px;
+}
+
+.events-heading {
+  font-size: 11px;
+  font-weight: 600;
+  color: $text-muted;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+}
+
+// ── Event card ─────────────────────────────────────────────────────────────────
+.event-card {
+  background: #181b22;
+  border: 1px solid #2a2e3d;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  overflow: hidden;
+
+  &.error { border-color: #5c2222; }
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover { background: #1e2130; }
+}
+
+.event-icon { font-size: 16px; flex-shrink: 0; }
+
+.card-title-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: $text-main;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-source {
+  display: block;
+  font-size: 11px;
+  color: $text-muted;
+  margin-top: 1px;
+}
+
+.card-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.status-pill {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+
+  &.success { background: #1b3a1d; color: #66bb6a; }
+  &.error   { background: #3a1b1b; color: #ef9a9a; }
+  &.running { background: #3a2a0a; color: #ffa726; }
+}
+
+.dur-pill {
+  font-size: 10.5px;
+  font-family: $mono;
+  color: $text-muted;
+  background: #252830;
+  padding: 2px 6px;
+  border-radius: $radius-pill;
+}
+
+.expand-btn {
+  font-size: 10px;
+  color: $text-muted;
+}
+
+// ── Card detail ────────────────────────────────────────────────────────────────
+.card-detail {
+  padding: 10px 14px 12px;
+  border-top: 1px solid #222633;
+  background: #111318;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .detail-row {
   display: flex;
   gap: 12px;
   font-size: 12px;
-
-  .detail-key {
-    color: #9aa0ac;
-    min-width: 50px;
-  }
-
-  .detail-val {
-    color: #c8ccd4;
-
-    &.code {
-      font-family: monospace;
-      background: #1c1f26;
-      padding: 1px 6px;
-      border-radius: 4px;
-    }
-
-    &.success { color: #66bb6a; }
-    &.error   { color: #ef9a9a; }
-    &.running { color: #f9a825; }
-  }
-
-  &.error-detail .error-msg { color: #ef9a9a; }
+  align-items: flex-start;
 }
 
+.dk {
+  min-width: 90px;
+  font-size: 11px;
+  font-weight: 500;
+  color: $text-muted;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-top: 1px;
+}
+
+.dv {
+  flex: 1;
+  color: $text-main;
+  font-size: 12px;
+  line-height: 1.5;
+
+  &.code {
+    font-family: $mono;
+    background: #1e2130;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    word-break: break-all;
+  }
+}
+
+.error-row { margin-top: 2px; }
+.error-text { color: #ef9a9a; }
