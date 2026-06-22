@@ -144,14 +144,17 @@ async def voice_query(
         logger.error("%s | run_graph_full failed: %s", ts, exc)
         raise HTTPException(status_code=500, detail="Processing failed. Please try again.")
 
-    response_text = result["response"]
-    intent        = result["intent"]
+    response_text  = result["response"]
+    summary_text   = result.get("summary_response") or response_text
+    intent         = result["intent"]
     logger.info("%s | Graph response: %s | intent: %s", ts, response_text, intent)
 
     _update_history(session_id, user_text, response_text)
 
-    audio_out = _tts.synthesize(response_text)
-    logger.info("%s | TTS synthesised %d bytes", ts, len(audio_out))
+    # TTS reads the Summary View text — never the full optimised response which
+    # may contain markdown tables, structured layouts, or detailed formatting.
+    audio_out = _tts.synthesize(summary_text)
+    logger.info("%s | TTS synthesised %d bytes from summary (%d chars)", ts, len(audio_out), len(summary_text))
 
     if not audio_out:
         raise HTTPException(status_code=502, detail="TTS synthesis failed. Please try again.")
