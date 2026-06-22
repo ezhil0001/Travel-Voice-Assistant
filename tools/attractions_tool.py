@@ -19,10 +19,43 @@ def get_attractions(city: str) -> list:
     Returns a list of significant tourist locations or landmarks, each with
     a name, category description, and a relative distance indicator.
     """
+    # featureClass=S covers all structure/establishment records (airports, temples,
+    # palaces, hotels, universities, markets, …). The SGMT fcode was too narrow —
+    # it returned zero results for most cities in testing.
+    # A second pass with featureClass=L (area/landscape) is used if S returns nothing.
+    # Feature codes that represent genuine tourist attractions.
+    # Excludes AIRP (airport), RSTN (railway station), BUSTP (bus terminal),
+    # HTL (hotel) — those appear first in GeoNames S-class results and are
+    # not what a travel assistant should recommend as tourist spots.
+    _TOURIST_FCODES = {
+        "CH",    # church
+        "MSQE",  # mosque
+        "TMPL",  # temple
+        "CSTL",  # castle
+        "MSTY",  # monastery
+        "MNMT",  # monument
+        "MUS",   # museum
+        "PRK",   # park
+        "MALL",  # mall / market
+        "AMTH",  # amphitheatre
+        "RSRT",  # resort
+        "ZOO",   # zoo
+        "TOWR",  # tower
+        "PLZA",  # plaza
+        "CTRM",  # cultural centre
+        "RUIN",  # ruins
+        "SQR",   # square
+        "GRDN",  # garden
+        "STDM",  # stadium
+        "LTHSE", # lighthouse
+        "HSTS",  # historical site
+        "ANS",   # ancient site
+    }
+
     params = {
         "q": city,
-        "maxRows": 10,
-        "fcode": "SGMT",          # Feature code for monuments and historic sites
+        "maxRows": 50,           # fetch more so we can filter airport/hotel noise
+        "featureClass": "S",
         "username": settings.GEONAMES_USERNAME,
     }
 
@@ -31,22 +64,29 @@ def get_attractions(city: str) -> list:
         response.raise_for_status()
         geonames = response.json().get("geonames", [])
 
-        # SGMT is a narrow filter — if nothing comes back, fall back to a general
-        # keyword search so the user always gets some result for the city.
-        if not geonames:
-            params.pop("fcode")
+        # Keep only genuine tourist feature codes; fall back to the full list if
+        # filtering leaves nothing (handles cities with unusual GeoNames coverage).
+        tourist_spots = [p for p in geonames if p.get("fcode", "") in _TOURIST_FCODES]
+        if not tourist_spots:
+            tourist_spots = [
+                p for p in geonames
+                if p.get("fcode", "") not in {"AIRP", "RSTN", "BUSTP", "HTL", "HTEL"}
+            ]
+
+        # Fallback to landscape/area features if structure class returned nothing.
+        if not tourist_spots:
+            params["featureClass"] = "L"
+            params["maxRows"] = 10
             fallback = requests.get(_GEONAMES_URL, params=params, timeout=10)
-            geonames = fallback.json().get("geonames", [])
+            tourist_spots = fallback.json().get("geonames", [])
 
         results = []
-        for index, place in enumerate(geonames[:5]):
+        for index, place in enumerate(tourist_spots[:5]):
             results.append({
                 "name": place.get("name", "Unknown Attraction"),
                 "kinds": (
                     f"{place.get('fclName', 'Spot')} - {place.get('fcodeName', 'Landmark')}"
                 ),
-                # GeoNames doesn't return walking distance — use a plausible
-                # ordinal spread so downstream code that reads 'distance' doesn't break.
                 "distance": index * 500 + 300,
             })
 

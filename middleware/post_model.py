@@ -66,9 +66,23 @@ class PostModelMiddleware(AgentMiddleware):
     def _truncate(self, text: str) -> str:
         """Cap response length at POST_MODEL_MAX_CHARS (from .env).
 
-        If trimmed, appends POST_MODEL_OVERFLOW_SUFFIX so the user knows
-        they can ask a follow-up to hear the rest.
+        Cuts at the last sentence boundary before the limit so the response
+        never ends mid-word or mid-thought. Falls back to a hard character cut
+        only when no sentence boundary exists before the limit.
         """
         if len(text) <= self._max_chars:
             return text
-        return text[:self._max_chars].rstrip() + " " + self._overflow_suffix
+        # Find the last sentence-ending punctuation before the char limit
+        window = text[:self._max_chars]
+        last_boundary = max(
+            window.rfind(". "),
+            window.rfind("? "),
+            window.rfind("! "),
+            window.rfind(".\n"),
+        )
+        if last_boundary > self._max_chars // 2:
+            # Cut at the sentence end (include the punctuation, skip the space)
+            return text[:last_boundary + 1].rstrip() + " " + self._overflow_suffix
+        # No clean boundary found — hard cut at word boundary
+        return window.rstrip() + " " + self._overflow_suffix
+

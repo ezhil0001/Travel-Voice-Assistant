@@ -1,14 +1,14 @@
 # Tests the LangGraph supervisor + state machine in isolation.
 #
-# The graph wires real middleware, supervisor, and agent instances together.
-# We mock only the LLM chains (ChatOpenAI/ChatGroq) and tool HTTP calls so
-# the full routing, state mutation, and middleware transformation is exercised
-# without hitting any real API endpoint.
+# Intent detection is entirely LLM-based — keyword matching was removed because
+# it only catches exact words, not meaning. All tests therefore mock the LLM
+# response and verify the supervisor correctly parses and validates it.
 
+import json
 import logging
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,7 +24,8 @@ def test_travel_state_has_required_keys():
     """TravelState TypedDict must define all fields the graph reads/writes."""
     required = {
         "user_input", "conversation_history", "cleaned_input",
-        "detected_intent", "sub_agent_response", "final_response", "error",
+        "detected_intents", "agent_responses", "tool_events",
+        "final_response", "error",
     }
     annotations = TravelState.__annotations__
     for key in required:
@@ -32,119 +33,120 @@ def test_travel_state_has_required_keys():
     log.info("PASS | test_travel_state_has_required_keys")
 
 
-# ── SupervisorAgent ────────────────────────────────────────────────────────────
+# ── SupervisorAgent helpers ────────────────────────────────────────────────────
 
-def _make_supervisor_with_intent(intent: str) -> SupervisorAgent:
-    """Build a SupervisorAgent whose LLM chain returns a fixed intent string."""
-    with patch("agents.supervisor_agent.ChatOpenAI") as mock_cls, \
-         patch("agents.supervisor_agent.ChatGroq"):
-        mock_primary = MagicMock()
-        mock_cls.return_value = mock_primary
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = MagicMock(content=intent)
-        mock_primary.with_retry.return_value.with_fallbacks.return_value = mock_chain
-        sup = SupervisorAgent()
-    sup._chain = MagicMock()
-    sup._chain.invoke.return_value = MagicMock(content=intent)
+def _supervisor_returning(llm_output: str) -> SupervisorAgent:
+    """Build a SupervisorAgent whose ModelLayer returns a fixed string."""
+    sup = SupervisorAgent.__new__(SupervisorAgent)
+    mock_model = MagicMock()
+    mock_model.invoke.return_value = llm_output
+    sup._model = mock_model
     return sup
 
 
-def test_supervisor_routes_weather():
-    """Supervisor must write 'weather' to detected_intent for a weather query."""
-    sup = _make_supervisor_with_intent("weather")
-    state: TravelState = {
-        "user_input": "What is the weather in Tokyo?",
-        "conversation_history": [],
-        "cleaned_input": "What is the weather in Tokyo?",
-        "detected_intent": "", "sub_agent_response": "",
+def _make_state(cleaned_input: str) -> TravelState:
+    return {
+        "user_input": cleaned_input, "conversation_history": [],
+        "cleaned_input": cleaned_input,
+        "detected_intents": [], "agent_responses": {}, "tool_events": [],
         "final_response": "", "error": "",
     }
-    result = sup.route(state)
-    assert result["detected_intent"] == "weather"
-    log.info("PASS | test_supervisor_routes_weather")
 
 
-def test_supervisor_routes_flight():
-    sup = _make_supervisor_with_intent("flight")
-    state: TravelState = {
-        "user_input": "Find flights from JFK to NRT",
-        "conversation_history": [], "cleaned_input": "Find flights from JFK to NRT",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
-    }
-    result = sup.route(state)
-    assert result["detected_intent"] == "flight"
-    log.info("PASS | test_supervisor_routes_flight")
+# ── LLM-based intent detection ────────────────────────────────────────────────
+
+def test_supervisor_single_intent_weather():
+    """LLM returning [\"weather\"] must produce detected_intents=[\"weather\"]."""
+    sup = _supervisor_returning('["weather"]')
+    result = sup.route(_make_state("What is the weather in Tokyo?"))
+    assert result["detected_intents"] == ["weather"]
+    log.info("PASS | test_supervisor_single_intent_weather")
 
 
-def test_supervisor_routes_currency():
-    sup = _make_supervisor_with_intent("currency")
-    state: TravelState = {
-        "user_input": "How much is 500 USD in JPY?",
-        "conversation_history": [], "cleaned_input": "How much is 500 USD in JPY?",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
-    }
-    result = sup.route(state)
-    assert result["detected_intent"] == "currency"
-    log.info("PASS | test_supervisor_routes_currency")
+def test_supervisor_single_intent_flight():
+    sup = _supervisor_returning('["flight"]')
+    result = sup.route(_make_state("Find flights from JFK to NRT"))
+    assert result["detected_intents"] == ["flight"]
+    log.info("PASS | test_supervisor_single_intent_flight")
 
 
-def test_supervisor_invalid_intent_falls_back_to_general():
-    """Unexpected LLM output must be silently corrected to 'general'."""
-    sup = _make_supervisor_with_intent("nonsense_label")
-    state: TravelState = {
-        "user_input": "something weird", "conversation_history": [],
-        "cleaned_input": "something weird",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
-    }
-    result = sup.route(state)
-    assert result["detected_intent"] == "general"
-    log.info("PASS | test_supervisor_invalid_intent_falls_back_to_general")
+def test_supervisor_single_intent_currency():
+    sup = _supervisor_returning('["currency"]')
+    result = sup.route(_make_state("How much is 500 USD in JPY?"))
+    assert result["detected_intents"] == ["currency"]
+    log.info("PASS | test_supervisor_single_intent_currency")
 
 
-def test_supervisor_never_reads_raw_user_input_when_cleaned_available():
-    """Supervisor must read cleaned_input, not user_input, when both are present."""
-    sup = _make_supervisor_with_intent("timezone")
-    state: TravelState = {
-        "user_input": "  UNCLEAN input with   spaces  ",
-        "conversation_history": [],
-        "cleaned_input": "What time is it in Tokyo?",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
-    }
-    result = sup.route(state)
-    # The chain was called — verify it was passed the cleaned version
-    call_args = sup._chain.invoke.call_args[0][0]
-    human_msg = call_args[1]
-    assert "UNCLEAN" not in human_msg.content, "Supervisor must use cleaned_input, not user_input"
-    assert result["detected_intent"] == "timezone"
-    log.info("PASS | test_supervisor_never_reads_raw_user_input_when_cleaned_available")
+def test_supervisor_multi_intent():
+    """LLM returning multiple intents must all appear in detected_intents."""
+    sup = _supervisor_returning('["weather", "attractions", "currency"]')
+    result = sup.route(_make_state(
+        "Weather in Chennai, 5 days in Thailand, how much will it cost?"
+    ))
+    assert "weather"     in result["detected_intents"]
+    assert "attractions" in result["detected_intents"]
+    assert "currency"    in result["detected_intents"]
+    log.info("PASS | test_supervisor_multi_intent")
 
 
-def test_supervisor_exception_defaults_to_general():
-    """If the LLM chain raises, supervisor must write 'general' and log the error."""
-    with patch("agents.supervisor_agent.ChatOpenAI") as mock_cls, \
-         patch("agents.supervisor_agent.ChatGroq"):
-        mock_primary = MagicMock()
-        mock_cls.return_value = mock_primary
-        mock_chain = MagicMock()
-        mock_chain.invoke.side_effect = Exception("LLM timeout")
-        mock_primary.with_retry.return_value.with_fallbacks.return_value = mock_chain
-        sup = SupervisorAgent()
+def test_supervisor_llm_failure_returns_general():
+    """If the LLM raises, supervisor must return ['general'] — not crash."""
+    sup = SupervisorAgent.__new__(SupervisorAgent)
+    mock_model = MagicMock()
+    mock_model.invoke.side_effect = Exception("LLM offline")
+    sup._model = mock_model
+    result = sup.route(_make_state("some query"))
+    assert result["detected_intents"] == ["general"]
+    assert result["error"] == ""   # error field stays clean — LLM failure is handled internally
+    log.info("PASS | test_supervisor_llm_failure_returns_general")
 
-    sup._chain = MagicMock()
-    sup._chain.invoke.side_effect = Exception("LLM timeout")
 
-    state: TravelState = {
-        "user_input": "test", "conversation_history": [], "cleaned_input": "test",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
-    }
-    result = sup.route(state)
-    assert result["detected_intent"] == "general"
-    assert result["error"] != ""
-    log.info("PASS | test_supervisor_exception_defaults_to_general")
+def test_supervisor_invalid_json_returns_general():
+    """LLM returning garbage (not a JSON array) must produce ['general']."""
+    sup = _supervisor_returning("sure, I think it might be weather related")
+    result = sup.route(_make_state("What should I wear?"))
+    assert result["detected_intents"] == ["general"]
+    log.info("PASS | test_supervisor_invalid_json_returns_general")
+
+
+def test_supervisor_unknown_intents_filtered_out():
+    """Intent labels not in VALID_INTENTS must be silently dropped."""
+    sup = _supervisor_returning('["weather", "unknown_domain", "currency"]')
+    result = sup.route(_make_state("test"))
+    assert "unknown_domain" not in result["detected_intents"]
+    assert "weather"  in result["detected_intents"]
+    assert "currency" in result["detected_intents"]
+    log.info("PASS | test_supervisor_unknown_intents_filtered_out")
+
+
+def test_supervisor_deduplicates_intents():
+    """Duplicate labels in LLM output must be collapsed to one entry."""
+    sup = _supervisor_returning('["weather", "weather", "currency"]')
+    result = sup.route(_make_state("test"))
+    assert result["detected_intents"].count("weather") == 1
+    log.info("PASS | test_supervisor_deduplicates_intents")
+
+
+def test_supervisor_uses_cleaned_input_not_user_input():
+    """Supervisor must pass cleaned_input to the LLM, not raw user_input."""
+    sup = SupervisorAgent.__new__(SupervisorAgent)
+    mock_model = MagicMock()
+    mock_model.invoke.return_value = '["currency"]'
+    sup._model = mock_model
+
+    state = _make_state("How much is 100 USD in Euros?")
+    state["user_input"] = "UNCLEAN RAW INPUT"  # should be ignored
+    sup.route(state)
+
+    # The prompt passed to the model must contain cleaned_input, not user_input
+    call_args = mock_model.invoke.call_args[0][0]
+    assert "UNCLEAN RAW INPUT" not in call_args
+    assert "100 USD" in call_args
+    log.info("PASS | test_supervisor_uses_cleaned_input_not_user_input")
 
 
 def test_valid_intents_set_is_complete():
-    """VALID_INTENTS must cover all 6 routing domains the supervisor can classify."""
+    """VALID_INTENTS must cover all 6 routing domains."""
     expected = {"weather", "flight", "attractions", "currency", "timezone", "general"}
     assert expected == set(VALID_INTENTS)
     log.info("PASS | test_valid_intents_set_is_complete")
@@ -158,7 +160,8 @@ def test_pre_middleware_node_cleans_input():
     state: TravelState = {
         "user_input": "  what is the weather in   Tokyo  ",
         "conversation_history": [], "cleaned_input": "",
-        "detected_intent": "", "sub_agent_response": "", "final_response": "", "error": "",
+        "detected_intents": [], "agent_responses": {}, "tool_events": [],
+        "final_response": "", "error": "",
     }
     result = pre_middleware_node(state)
     assert result["cleaned_input"] == "what is the weather in Tokyo"
@@ -166,13 +169,13 @@ def test_pre_middleware_node_cleans_input():
 
 
 def test_post_middleware_node_strips_markdown():
-    """post_middleware_node must strip markdown from sub_agent_response."""
+    """post_middleware_node must strip markdown from final_response."""
     from graph.travel_graph import post_middleware_node
     state: TravelState = {
         "user_input": "", "conversation_history": [], "cleaned_input": "",
-        "detected_intent": "weather",
-        "sub_agent_response": "**Tokyo** is 18°C. Visit http://example.com for details.",
-        "final_response": "", "error": "",
+        "detected_intents": ["weather"], "agent_responses": {}, "tool_events": [],
+        "final_response": "**Tokyo** is 18°C. Visit http://example.com for details.",
+        "error": "",
     }
     result = post_middleware_node(state)
     assert "**" not in result["final_response"]
@@ -180,27 +183,33 @@ def test_post_middleware_node_strips_markdown():
     log.info("PASS | test_post_middleware_node_strips_markdown")
 
 
-def test_route_by_intent_returns_correct_node():
-    """_route_by_intent must return the correct node name for each intent."""
-    from graph.travel_graph import _route_by_intent
-
-    base: TravelState = {
-        "user_input": "", "conversation_history": "", "cleaned_input": "",
-        "sub_agent_response": "", "final_response": "", "error": "",
-        "detected_intent": "",
+def test_merge_responses_node_single_intent_returns_directly():
+    """merge_responses_node must return the agent response directly for a single intent."""
+    from graph.travel_graph import merge_responses_node
+    state: TravelState = {
+        "user_input": "Weather in Paris?", "conversation_history": [],
+        "cleaned_input": "Weather in Paris?",
+        "detected_intents": ["weather"],
+        "agent_responses": {"weather": "Paris is 22°C and sunny today."},
+        "tool_events": [], "final_response": "", "error": "",
     }
+    result = merge_responses_node(state)
+    assert result["final_response"] == "Paris is 22°C and sunny today."
+    log.info("PASS | test_merge_responses_node_single_intent_returns_directly")
 
-    cases = {
-        "weather":     "weather_node",
-        "flight":      "flight_node",
-        "attractions": "attractions_node",
-        "currency":    "currency_node",
-        "timezone":    "timezone_node",
-        "general":     "general_node",
-        "unknown":     "general_node",   # safety fallback
+
+def test_merge_responses_node_empty_returns_fallback():
+    """merge_responses_node must return a non-empty fallback when agent_responses is empty."""
+    from graph.travel_graph import merge_responses_node
+    state: TravelState = {
+        "user_input": "", "conversation_history": [], "cleaned_input": "",
+        "detected_intents": [], "agent_responses": {},
+        "tool_events": [], "final_response": "", "error": "",
     }
-    for intent, expected_node in cases.items():
-        state = {**base, "detected_intent": intent}
-        assert _route_by_intent(state) == expected_node, f"Wrong node for intent={intent}"
+    result = merge_responses_node(state)
+    assert result["final_response"]
+    log.info("PASS | test_merge_responses_node_empty_returns_fallback")
 
-    log.info("PASS | test_route_by_intent_returns_correct_node")
+
+import json
+import logging

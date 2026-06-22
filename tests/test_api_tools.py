@@ -51,17 +51,29 @@ def test_weather():
 
 
 def test_flights():
-    # FlightAPI.io returns a `legs` list — no OAuth2 token call needed
+    # FlightAPI.io actual response shape: itineraries list + legs list + carriers list
     offers_payload = {
+        "itineraries": [
+            {
+                "id": "JFK-2503151000--32672-1-NRT-2503161430",
+                "leg_ids": ["JFK-2503151000--32672-1-NRT-2503161430"],
+                "pricing_options": [
+                    {"price": {"amount": 750}, "agent_ids": ["skyp"], "items": []}
+                ],
+            }
+        ],
         "legs": [
             {
-                "airlineCode": "JL",
-                "price": {"total": "750.00"},
-                "segments": [{"dep": "JFK"}, {"arr": "NRT"}],
-                "departureTime": "2025-03-15T10:00:00",
-                "arrivalTime": "2025-03-16T14:30:00",
+                "id": "JFK-2503151000--32672-1-NRT-2503161430",
+                "departure": "2025-03-15T10:00:00",
+                "arrival": "2025-03-16T14:30:00",
+                "stop_count": 1,
+                "marketing_carrier_ids": [-32672],
             }
-        ]
+        ],
+        "carriers": [
+            {"id": -32672, "name": "Japan Airlines", "display_code": "JL", "alt_id": "JL"},
+        ],
     }
 
     with patch("tools.flight_tool.requests.get", return_value=_mock_response(offers_payload)):
@@ -69,7 +81,9 @@ def test_flights():
 
     assert isinstance(result, list), f"Flights tool failed: {result}"
     assert result[0]["airline"] == "JL"
-    assert result[0]["stops"] == 1   # 2 segments → 1 stop
+    assert result[0]["price"] == "750"
+    assert result[0]["stops"] == 1
+    assert result[0]["departure"] == "2025-03-15T10:00:00"
     log.info("PASS | test_flights | FlightAPI.io offers parsed correctly")
 
 

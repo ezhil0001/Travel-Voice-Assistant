@@ -55,12 +55,28 @@ class WeatherAgent(BaseAgent):
                     return f"Sorry, I couldn't fetch the weather. {tool_result['error']}"
 
                 # Step 3 — Ask the model to format the raw data into a voice response.
-                format_messages = messages + [
-                    response,
-                    HumanMessage(content=f"Tool result: {tool_result}. Now answer conversationally."),
+                # Send a clean 2-message request (no AIMessage with tool_calls) so
+                # Groq doesn't reject the conversation with HTTP 400.
+                format_messages = [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly weather summary."),
                 ]
-                final = self._format_chain.invoke(format_messages)
-                return final.content
+                try:
+                    final = self._format_chain.invoke(format_messages)
+                    if final.content and final.content.strip():
+                        return final.content
+                except Exception as fmt_exc:
+                    logger.warning("WeatherAgent.run | format_chain failed: %s — using direct format", fmt_exc)
+
+                # Direct fallback when format chain fails
+                city = tool_result.get("city", "your destination")
+                temp = tool_result.get("temperature", "")
+                desc = tool_result.get("description", "")
+                feels = tool_result.get("feels_like", "")
+                return (
+                    f"In {city} it is currently {temp}°C (feels like {feels}°C) "
+                    f"with {desc}. Pack light and stay hydrated."
+                )
 
             # LLM answered directly without a tool call.
             return response.content

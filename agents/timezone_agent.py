@@ -3,6 +3,7 @@
 # system prompt, and its result-formatting logic. No middleware here.
 
 import logging
+import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from agents.base_agent import BaseAgent
 from tools.timezone_tool import get_timezone
@@ -11,10 +12,11 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a timezone expert for a voice travel assistant. "
-    "Extract the city or timezone from the query, call get_timezone using "
-    "the correct IANA timezone string (e.g. 'Asia/Tokyo', 'Europe/Paris'). "
-    "Report the current local time and state how many hours ahead or behind "
-    "US Eastern Time (UTC-5) it is. One sentence. No markdown."
+    "The query may contain an explicit IANA timezone string after 'Use timezone'. "
+    "If present, use that string EXACTLY as the argument to get_timezone — do NOT guess. "
+    "If no explicit timezone is given, derive the correct IANA string from the city name. "
+    "Report the current local time and how many hours ahead or behind US Eastern Time it is. "
+    "One sentence. No markdown."
 )
 
 
@@ -29,26 +31,69 @@ class TimezoneAgent(BaseAgent):
         super().__init__(tool=get_timezone)
 
     def run(self, query: str, timezone: str = "UTC") -> str:
-        """Tool invocation → LLM formatting → return plain string."""
-        logger.info("TimezoneAgent.run | timezone=%s", timezone)
+        """Tool invocation → LLM formatting → return plain string.
+
+        If _validate_timezone_query embedded an explicit IANA timezone in the
+        focused query (e.g. "Use timezone Asia/Bangkok"), extract it here and
+        use it directly as the tool argument rather than relying on the LLM to
+        re-derive it — eliminates the UTC fallback bug.
+        """
+        # Extract explicit IANA timezone injected by _validate_timezone_query
+        iana_hint = _extract_iana(query) or (timezone if timezone != "UTC" else "")
+        logger.info("TimezoneAgent.run | timezone=%s | iana_hint=%s", timezone, iana_hint)
+
         try:
-            context = f" (Use timezone={timezone})" if timezone and timezone != "UTC" else ""
             messages = [
                 SystemMessage(content=_SYSTEM_PROMPT),
-                HumanMessage(content=query + context),
+                HumanMessage(content=query),
             ]
             response = self._bound_chain.invoke(messages)
             if response.tool_calls:
-                tool_result = self._tool.invoke(response.tool_calls[0]["args"])
+                args = response.tool_calls[0]["args"]
+                # Override LLM-chosen timezone with our validated hint when available
+                if iana_hint:
+                    args = {**args, "timezone": iana_hint}
+                logger.info("TimezoneAgent.run | tool_args=%s", args)
+                tool_result = self._tool.invoke(args)
                 if "error" in tool_result:
                     return f"Sorry, I couldn't fetch the timezone information. {tool_result['error']}"
-                format_messages = messages + [
-                    response,
-                    HumanMessage(content=f"Tool result: {tool_result}. Now answer conversationally."),
+                format_messages = [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly timezone summary."),
                 ]
                 return self._format_chain.invoke(format_messages).content
             return response.content
         except Exception as exc:
             logger.error("TimezoneAgent.run | failed: %s", exc)
+            # If we already have the IANA string (injected by the focused-query
+            # builder), call the tool directly and format the result ourselves
+            # rather than returning a sorry message — the LLM failure doesn't
+            # mean the timezone data is unavailable.
+            if iana_hint:
+                try:
+                    tool_result = self._tool.invoke({"timezone": iana_hint})
+                    if "error" not in tool_result:
+                        dt = tool_result.get("datetime", "")
+                        time_str = dt[11:16] if len(dt) >= 16 else ""
+                        tz = tool_result.get("timezone", iana_hint)
+                        if time_str:
+                            return f"It is currently {time_str} in {tz.split('/')[-1].replace('_', ' ')}."
+                except Exception as tool_exc:
+                    logger.error("TimezoneAgent.run | direct tool call also failed: %s", tool_exc)
             return "Sorry, I couldn't fetch the timezone information right now. Please try again."
+
+
+def _extract_iana(query: str) -> str:
+    """Pull out the IANA timezone string injected by _validate_timezone_query.
+
+    Matches patterns like: 'Use timezone Asia/Bangkok' or 'timezone: Asia/Bangkok'.
+    Returns empty string if no match.
+    """
+    match = re.search(r'[Uu]se\s+timezone\s+([\w/]+)', query)
+    if match:
+        return match.group(1)
+    match = re.search(r'timezone[:\s]+([A-Za-z]+/[A-Za-z_]+)', query)
+    if match:
+        return match.group(1)
+    return ""
 

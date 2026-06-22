@@ -3,6 +3,8 @@
 # system prompt, and its result-formatting logic. No middleware here.
 
 import logging
+import re
+from datetime import date as _today_date, timedelta
 from langchain_core.messages import HumanMessage, SystemMessage
 from agents.base_agent import BaseAgent
 from tools.flight_tool import get_flights
@@ -11,9 +13,19 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a flight search specialist for a voice travel assistant. "
-    "Extract the departure city, destination city, and travel date from the query. "
-    "Call get_flights using 3-letter IATA codes (e.g. New York → JFK, Tokyo → NRT). "
+    "The query contains IATA airport codes (3 uppercase letters) and a date in YYYY-MM-DD format. "
+    "Extract origin IATA, destination IATA, and date — then call get_flights. "
+    "NEVER pass city names; only use the IATA codes already present in the query. "
     "Return the cheapest option with price, stops, and airline. One sentence. No markdown."
+)
+
+_GENERAL_FLIGHT_PROMPT = (
+    "You are a knowledgeable travel assistant. The live flight search API is currently unavailable. "
+    "Based on your training knowledge, give a helpful answer about the route asked. "
+    "Include: typical airlines serving the route, approximate flight duration, number of stops, "
+    "and a rough price range in USD. "
+    "Be clear this is approximate and recommend checking a booking site for live prices. "
+    "No markdown. Two to three sentences maximum."
 )
 
 
@@ -32,33 +44,44 @@ class FlightAgent(BaseAgent):
             date: str = "") -> str:
         """Tool invocation → LLM formatting → return plain string.
 
-        ServiceLayer handles middleware before and after this call.
-        origin/destination/date hints are injected by the supervisor when
-        it has already resolved IATA codes from the conversation context.
+        The focused query passed by run_agents_node already contains IATA codes
+        and a YYYY-MM-DD date (validated by _validate_flight_query). This method
+        adds a Python-level guard: if the LLM still produces city names instead
+        of IATA codes, the guard overwrites them before the tool is called.
         """
         logger.info("FlightAgent.run | %s → %s on %s", origin, destination, date)
         try:
-            context = ""
-            if origin and destination and date:
-                context = f" (Use origin={origin}, destination={destination}, date={date})"
-
             messages = [
                 SystemMessage(content=_SYSTEM_PROMPT),
-                HumanMessage(content=query + context),
+                HumanMessage(content=query),
             ]
 
             response = self._bound_chain.invoke(messages)
 
             if response.tool_calls:
-                tool_call = response.tool_calls[0]
-                tool_result = self._tool.invoke(tool_call["args"])
+                args = dict(response.tool_calls[0]["args"])
+                logger.info("FlightAgent.run | tool_args=%s", args)
+
+                # Guard: override with Python-extracted values when the LLM
+                # returned city names or left fields empty.
+                iata_pairs = _extract_iata_and_date(query)
+                if iata_pairs["origin"]:
+                    args["origin"] = iata_pairs["origin"]
+                if iata_pairs["destination"]:
+                    args["destination"] = iata_pairs["destination"]
+                if iata_pairs["date"]:
+                    args["date"] = iata_pairs["date"]
+
+                logger.info("FlightAgent.run | final_args=%s", args)
+                tool_result = self._tool.invoke(args)
 
                 if isinstance(tool_result, list) and tool_result and "error" in tool_result[0]:
-                    return f"Sorry, I couldn't find flights. {tool_result[0]['error']}"
+                    logger.warning("FlightAgent.run | API error: %s — falling back to LLM knowledge", tool_result[0]["error"])
+                    return self._llm_fallback(query)
 
-                format_messages = messages + [
-                    response,
-                    HumanMessage(content=f"Tool result: {tool_result}. Now answer conversationally."),
+                format_messages = [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Tool result: {tool_result}. Give a voice-friendly flight summary."),
                 ]
                 final = self._format_chain.invoke(format_messages)
                 return final.content
@@ -67,5 +90,43 @@ class FlightAgent(BaseAgent):
 
         except Exception as exc:
             logger.error("FlightAgent.run | failed: %s", exc)
-            return "Sorry, I couldn't search for flights right now. Please try again."
+            return self._llm_fallback(query)
+
+    def _llm_fallback(self, query: str) -> str:
+        """Use LLM training knowledge when the live flight API is unavailable.
+
+        Returns general route information (airlines, duration, price range) so
+        the user gets a useful answer rather than an error message.
+        """
+        logger.info("FlightAgent._llm_fallback | query=%s", query[:80])
+        try:
+            messages = [
+                SystemMessage(content=_GENERAL_FLIGHT_PROMPT),
+                HumanMessage(content=query),
+            ]
+            return self._format_chain.invoke(messages).content
+        except Exception as exc:
+            logger.error("FlightAgent._llm_fallback | failed: %s", exc)
+            return "Flight search is unavailable right now. Please check a booking site like Google Flights or Skyscanner for live prices."
+
+
+def _extract_iata_and_date(query: str) -> dict:
+    """Extract IATA codes and a YYYY-MM-DD date directly from the focused query string.
+
+    _validate_flight_query writes queries like:
+      "Find flights from MAA to BKK on 2026-06-29."
+    This function reads them back out, providing a deterministic safety net
+    that does not require another LLM call.
+    """
+    iata_codes = re.findall(r'\b([A-Z]{3})\b', query)
+    date_match  = re.search(r'(\d{4}-\d{2}-\d{2})', query)
+    # Filter common English 3-letter words that aren't IATA codes
+    excluded = {"THE", "AND", "FOR", "FROM", "USE", "NOT", "OUT", "NOW"}
+    iata_codes = [c for c in iata_codes if c not in excluded]
+
+    return {
+        "origin":      iata_codes[0] if len(iata_codes) >= 1 else "",
+        "destination": iata_codes[1] if len(iata_codes) >= 2 else "",
+        "date":        date_match.group(1) if date_match else "",
+    }
 

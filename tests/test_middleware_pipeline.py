@@ -129,11 +129,13 @@ def test_post_model_removes_urls():
 
 
 def test_post_model_truncates_long_response():
-    """Responses over 400 chars must be trimmed and end with the follow-up cue."""
+    """Responses over POST_MODEL_MAX_CHARS must be trimmed and end with the follow-up cue."""
     mw = PostModelMiddleware()
-    long_text = "a" * 500
+    # Build a string guaranteed to exceed whatever the current max is
+    long_text = "a" * (mw._max_chars + 500)
     result = mw.process(long_text)
-    assert len(result) <= 430   # 400 chars + suffix buffer
+    # Trimmed text + space + suffix must stay within max_chars + len(suffix) + 1
+    assert len(result) <= mw._max_chars + len(mw._overflow_suffix) + 1
     assert "just ask" in result
     log.info("PASS | test_post_model_truncates_long_response")
 

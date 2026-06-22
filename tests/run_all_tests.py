@@ -21,6 +21,7 @@ TEST_MODULES = [
     "tests/test_voice_pipeline.py",
     "tests/test_agent_routing.py",
     "tests/test_graph_routing.py",
+    "tests/test_multi_intent.py",
     "tests/test_server_endpoints.py",
 ]
 

@@ -173,7 +173,7 @@ def test_currency_agent_tool_binding_flow():
         mock_tool.invoke.return_value = fake_currency
         agent = _build_agent_with_mock_chain(CurrencyAgent, mock_chain)
         agent._tool = mock_tool
-        result = agent.run("How much is 500 dollars in yen?", "USD", "JPY", 500)
+        result = agent.run("How much is 500 dollars in yen?")
 
     assert isinstance(result, str) and len(result) > 0
     log.info("PASS | test_currency_agent_tool_binding_flow")

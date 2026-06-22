@@ -1,100 +1,104 @@
-# SupervisorAgent — the routing brain of the LangGraph pipeline.
+# SupervisorAgent — detects ALL intents in a user query and returns them as a list.
 #
-# Architectural guardrails enforced here:
-#   - The supervisor NEVER calls any tool directly.
-#   - The supervisor NEVER reads raw conversation history or user_input.
-#   - It receives ONLY cleaned_input (already sanitised by PreModelMiddleware).
-#   - It returns ONLY a single intent string — nothing else.
+# Intent detection is handled entirely by the LLM. A well-constructed prompt
+# with clear examples covers semantic meaning — "how will it drain my wallet"
+# correctly maps to "currency" the same way "exchange rate" does.
+# Keyword matching can only catch exact words and misses paraphrases entirely,
+# so the LLM is the only detection layer here.
 #
-# The LLM call here is intentionally lightweight: a short classification
-# prompt with a constrained single-word output. Any heavier reasoning
-# (tool calls, data formatting) belongs inside the sub-agents.
+# If the LLM is unavailable or returns unparseable output, the fallback is
+# ["general"] so the graph always has a safe path to continue with.
+#
+# The supervisor never calls tools and never reads raw conversation history.
+# It receives only cleaned_input and writes only detected_intents.
 
+import json
 import logging
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
+import os
+import re
+
+from agents.model_layer import ModelLayer
 from state.schema import TravelState
-from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Exhaustive set of valid intent labels — used both in the prompt and as
-# a fallback guard so an unexpected LLM response never breaks the graph.
-VALID_INTENTS = frozenset({
-    "weather", "flight", "attractions", "currency", "timezone", "general"
-})
+_PROMPTS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "prompts.json")
+with open(_PROMPTS_PATH, encoding="utf-8") as _f:
+    _PROMPTS: dict = json.load(_f)
 
-_ROUTING_PROMPT = (
-    "You are a routing agent for a travel assistant. "
-    "Given the user's message, classify the intent into exactly ONE of these categories:\n"
-    "- weather       (temperature, forecast, climate, rain, packing)\n"
-    "- flight        (flights, tickets, travel dates, airports, prices)\n"
-    "- attractions   (what to visit, tourist spots, things to do, places)\n"
-    "- currency      (money, exchange rate, how much in X currency)\n"
-    "- timezone      (time, what time is it, time difference)\n"
-    "- general       (anything else, greetings, general travel questions)\n\n"
-    "Respond with ONLY the category word — no explanation, no punctuation."
-)
+_ROUTING_PROMPT_TEMPLATE: str = _PROMPTS["supervisor_routing_prompt"]
+
+# VALID_INTENTS is derived from agent_instructions keys in prompts.json so
+# adding a new domain only requires updating config — not this file.
+VALID_INTENTS: frozenset[str] = frozenset(_PROMPTS["agent_instructions"].keys())
 
 
 class SupervisorAgent:
-    """Routes a cleaned user query to the correct sub-agent node.
+    """Routes a cleaned user query to one or more sub-agent domains.
 
-    Uses the same Runnable resilience pattern as all other model calls:
-        primary (Ollama) → .with_retry(3) → .with_fallbacks([Groq])
-
-    The supervisor is kept deliberately thin:
-        - Input:  state["cleaned_input"] only
-        - Output: one of the six intent strings
-        - Side effect: writes detected_intent into TravelState
+    Returns a list so a compound query ("weather + currency + attractions")
+    triggers all three agents. Detection is entirely LLM-based — no keyword
+    matching. If the LLM call fails or returns unparseable output, returns
+    ["general"] as a safe fallback so the graph never stalls.
     """
 
     def __init__(self) -> None:
-        primary = ChatOpenAI(model=settings.OLLAMA_MODEL, temperature=0)
-        fallback = ChatGroq(model=settings.GROQ_MODEL, api_key=settings.GROQ_API_KEY)
-
-        self._chain = (
-            primary
-            .with_retry(stop_after_attempt=3)
-            .with_fallbacks(
-                fallbacks=[fallback],
-                exceptions_to_handle=(Exception,),
-            )
-        )
+        self._model = ModelLayer()
 
     def route(self, state: TravelState) -> TravelState:
-        """Classify the cleaned input and write detected_intent into state.
+        """Detect all intents and write them into state["detected_intents"].
 
         Reads:  state["cleaned_input"]
-        Writes: state["detected_intent"]
-
-        The supervisor never reads user_input, conversation_history, or
-        any tool output — those are handled by PreModelMiddleware and the
-        sub-agents respectively.
+        Writes: state["detected_intents"], state["error"]
         """
-        cleaned = state.get("cleaned_input", state.get("user_input", ""))
-        logger.info("SupervisorAgent.route | input=%s", cleaned)
+        cleaned = state.get("cleaned_input") or state.get("user_input", "")
+        logger.info("SupervisorAgent.route | input=%s", cleaned[:80])
 
+        intents = self._llm_detect(cleaned)
+        logger.info("SupervisorAgent.route | intents=%s", intents)
+        return {**state, "detected_intents": intents, "error": ""}
+
+    def _llm_detect(self, user_input: str) -> list[str]:
+        """Ask the LLM for all intents present in the query.
+
+        Returns a validated, deduplicated list. Returns ["general"] on any
+        failure — parse error, timeout, or LLM returning nothing useful.
+        """
         try:
-            messages = [
-                SystemMessage(content=_ROUTING_PROMPT),
-                HumanMessage(content=cleaned),
+            prompt = _ROUTING_PROMPT_TEMPLATE.format(user_input=user_input)
+            raw = self._model.invoke(prompt)
+            logger.info("SupervisorAgent | LLM raw=%s", raw[:200])
+
+            match = re.search(r"\[.*?\]", raw, re.DOTALL)
+            if not match:
+                logger.warning("SupervisorAgent | no JSON array in LLM output — returning general")
+                return ["general"]
+
+            parsed = json.loads(match.group())
+            validated = [
+                i.strip().lower()
+                for i in parsed
+                if isinstance(i, str) and i.strip().lower() in VALID_INTENTS
             ]
-            response = self._chain.invoke(messages)
-            intent = response.content.strip().lower()
+            if not validated:
+                logger.warning("SupervisorAgent | no valid intents in %s — returning general", parsed)
+                return ["general"]
 
-            # Guard: if the LLM returns anything outside the valid set,
-            # fall back to general rather than breaking the graph.
-            if intent not in VALID_INTENTS:
-                logger.warning(
-                    "SupervisorAgent.route | unexpected intent=%r → defaulting to general", intent
-                )
-                intent = "general"
-
-            logger.info("SupervisorAgent.route | intent=%s", intent)
-            return {**state, "detected_intent": intent, "error": ""}
+            return _deduplicate(validated)
 
         except Exception as exc:
-            logger.error("SupervisorAgent.route | failed: %s", exc)
-            return {**state, "detected_intent": "general", "error": str(exc)}
+            logger.error("SupervisorAgent | LLM detection failed: %s — returning general", exc)
+            return ["general"]
+
+
+def _deduplicate(items: list[str]) -> list[str]:
+    """Remove duplicates while preserving insertion order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
